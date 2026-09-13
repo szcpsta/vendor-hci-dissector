@@ -46,13 +46,15 @@ if ($LASTEXITCODE -ne 0) { throw 'Dissector verification failed.' }
 ```
 
 현재 기대 결과는 28개 값·진단 검사, 일반 분석과 두 번 분석의 일치, 208개 잘림 위치 검사다.
+임시 plugin 폴더에 패키지를 복사해 `-X` 없이 자동 로드하는 검사도 포함한다.
+이 검사는 `WIRESHARK_PLUGIN_DIR`을 해당 TShark 프로세스에만 지정하며 실제 설치 폴더를 수정하지 않는다.
 `--check` 없이 실행하면 합성 파일만 만든다.
 
 ```powershell
 $decodeArgs = @(
     '-n', '-r', $capturePath,
     '-X', "lua_script:$luaEntry",
-    '-d', 'bthci_cmd.vendor=bkv',
+    '-d', 'bthci_cmd.vendor=bthci_vendor.samsung',
     '-V'
 )
 & $tsharkExe @decodeArgs
@@ -64,12 +66,12 @@ PowerShell의 줄 연결용 backtick을 복사하다 생기는 실수를 줄인�
 GUI로 같은 파일을 여는 명령은 다음과 같다.
 
 ```powershell
-& $wiresharkExe '-r' $capturePath '-X' "lua_script:$luaEntry" '-d' 'bthci_cmd.vendor=bkv'
+& $wiresharkExe '-r' $capturePath '-X' "lua_script:$luaEntry" '-d' 'bthci_cmd.vendor=bthci_vendor.samsung'
 ```
 
-현재 패키지의 프로토콜 이름은 `bkv`이고, Decode As 테이블은 `bthci_cmd.vendor`다.
-이 테이블은 HCI Command와 Event가 공유하며, FT_NONE이므로 `bthci_cmd.vendor=bkv` 문법을 쓴다.
-Samsung용 이름을 문서에 제안했다고 해서 현재 예제 이름이 변경된 것은 아니다.
+현재 패키지의 프로토콜 이름은 `bthci_vendor.samsung`이고, Decode As 테이블은 `bthci_cmd.vendor`다.
+이 테이블은 HCI Command와 Event가 공유하며, FT_NONE이므로 `bthci_cmd.vendor=bthci_vendor.samsung` 문법을 쓴다.
+현재 실행 예제에도 Samsung 이름을 적용했다. payload layout은 계속 학습용이다.
 
 ## 3. 플러그인 폴더 확인
 
@@ -133,19 +135,28 @@ Windows의 symbolic link도 가능하지만 Developer Mode나 권한 조건이 �
 <Personal Lua Plugins>\
 └── vendor_hci\             # 실제 폴더 또는 작업 폴더를 가리키는 junction
     ├── init.lua
-    └── bkv_tutorial.lua
+    ├── samsung_dissector.lua
+    ├── samsung_fields.lua
+    ├── samsung_reader.lua
+    ├── samsung_commands.lua
+    ├── samsung_events.lua
+    └── samsung_command_complete.lua
 ```
+
+이 배치는 4.4.8의 개별 Lua 스캔과 `require()` 캐시를 함께 고려했다.
+`init.lua`가 있다는 이유만으로 다른 파일이 자동 스캔되지 않는다고 가정하지 않는다.
+예전 복사본을 갱신할 때는 폐기된 Lua 파일이 남지 않도록 설치 폴더 전체를 교체한다.
 
 ## 5. 자동 로드와 수정 후 재로드
 
 복사/연결한 뒤에는 `-X`를 생략한다.
 
 ```powershell
-& $tsharkExe '-n' '-r' $capturePath '-d' 'bthci_cmd.vendor=bkv' '-V'
+& $tsharkExe '-n' '-r' $capturePath '-d' 'bthci_cmd.vendor=bthci_vendor.samsung' '-V'
 ```
 
 GUI에서는 Wireshark를 다시 시작하고 Analyze → Decode As…에서 `BT HCI Vendor`의
-프로토콜을 `BluetoothKit Vendor Tutorial`로 선택한다. 후보 등록과 선택은 별개의 동작이다.
+프로토콜을 `Samsung HCI Vendor`로 선택한다. 후보 등록과 선택은 별개의 동작이다.
 
 작업 순서는 `소스 수정 → Lua 재로드 또는 TShark 재실행 → 실제 패킷과 필터 확인`이다.
 
@@ -160,14 +171,14 @@ GUI에서는 Wireshark를 다시 시작하고 Analyze → Decode As…에서 `BT
 
 ```powershell
 & $tsharkExe -G protocols | Select-String 'bthci_vendor'
-& $tsharkExe -G fields -X "lua_script:$luaEntry" | Select-String 'bkv\.(address|handle)'
+& $tsharkExe -G fields -X "lua_script:$luaEntry" | Select-String 'bthci_vendor\.samsung\.(bd_addr|connection_handle)'
 
 $filterArgs = @(
     '-n', '-r', $capturePath,
     '-X', "lua_script:$luaEntry",
-    '-d', 'bthci_cmd.vendor=bkv',
-    '-Y', 'bkv.address == aa:bb:cc:dd:ee:ff',
-    '-T', 'fields', '-e', 'frame.number', '-e', 'bkv.address'
+    '-d', 'bthci_cmd.vendor=bthci_vendor.samsung',
+    '-Y', 'bthci_vendor.samsung.bd_addr == aa:bb:cc:dd:ee:ff',
+    '-T', 'fields', '-e', 'frame.number', '-e', 'bthci_vendor.samsung.bd_addr'
 )
 & $tsharkExe @filterArgs
 ```
@@ -182,7 +193,7 @@ PowerShell 문자열 안의 display filter는 한 인수로 전달한다. `-Y`�
 | 현상 | 확인할 내용 |
 |---|---|
 | `Proto`를 찾지 못함 | 일반 `lua` 실행 프로그램으로 실행했는지 확인. TShark/Wireshark로 로드 |
-| `bkv`가 유효하지 않음 | Lua 로드 오류, 잘못된 `-X` 경로, plugin 폴더, `init.lua` 존재 여부 |
+| `bthci_vendor.samsung`이 유효하지 않음 | Lua 로드 오류, 잘못된 `-X` 경로, plugin 폴더, `init.lua` 존재 여부 |
 | 프로토콜 중복 등록 오류 | 설치된 패키지와 `-X`의 중복, 다른 폴더의 이전 복사본 |
 | 수정한 코드가 반영되지 않음 | 작업 파일과 복사본의 경로, junction Target, Lua 재로드 여부 |
 | 필드 필터가 유효하지 않음 | plugin이 로드됐는지, 실제 abbreviation과 대소문자가 맞는지 |

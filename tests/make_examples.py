@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Generate synthetic H4 btsnoop examples; optionally check them with real TShark.
 
-python3 make_examples.py /tmp/bkv.btsnoop --check /path/to/tshark
+python3 make_examples.py /tmp/vendor-hci-examples.btsnoop --check /path/to/tshark
 No vendor data or third-party Python packages are required.
 """
 import argparse
 import csv
 import io
+import os
 from pathlib import Path
+import shutil
 import struct
 import subprocess
 import tempfile
@@ -36,15 +38,15 @@ CASES = [
     ("Command Complete (unknown return format)", bytes.fromhex("04 0e 05 01 01 fc 00 44"), {"unknown": True}),
     ("Command Status", bytes.fromhex("04 0f 04 00 01 01 fc"), {}),
     ("Display types", event("e0 01 00 34 12 56 34 12 06 05 04 03 02 01 ff ee dd cc bb aa d6 10 00 c0 a8 01 02 03 42 54 21"),
-     {"status": "0x00", "address": "aa:bb:cc:dd:ee:ff", "rssi": "-42", "counter": "1108152157446", "interval_ms": "10", "text": "BT!"}),
+     {"connection_handle": "0x1234", "status": "0x00", "bd_addr": "aa:bb:cc:dd:ee:ff", "rssi": "-42", "counter": "1108152157446", "interval_ms": "10", "text": "BT!"}),
     ("Action clear", event("e0 02 00"), {}),
-    ("Action address", event("e0 02 01 ff ee dd cc bb aa"), {"address": "aa:bb:cc:dd:ee:ff"}),
-    ("Action handle", event("e0 02 02 34 12"), {}),
+    ("Action address", event("e0 02 01 ff ee dd cc bb aa"), {"bd_addr": "aa:bb:cc:dd:ee:ff"}),
+    ("Action handle", event("e0 02 02 34 12"), {"connection_handle": "0x1234"}),
     ("Action unknown", event("e0 02 7f aa bb"), {"unknown": True}),
     ("Counted bytes followed by RSSI", event("e0 03 03 aa bb cc d6"), {"data": "aabbcc", "rssi": "-42"}),
     ("Zero length bytes followed by RSSI", event("e0 03 00 d6"), {"rssi": "-42"}),
     ("Two fixed records plus five ushorts", event("e0 04 02 34 12 d6 78 56 e2 01 00 02 00 03 00 04 00 05 00"),
-     {"count": "2", "rssi": "-42,-30", "value": "1,2,3,4,5"}),
+     {"connection_handle": "0x1234,0x5678", "count": "2", "rssi": "-42,-30", "value": "1,2,3,4,5"}),
     ("Two variable CsStepEntry records", event("e0 05 02 01 25 02 aa bb 02 26 03 10 20 30"),
      {"count": "2", "step.mode": "1,2", "step.length": "2,3", "step.data": "aabb,102030"}),
     ("Zero records", event("e0 05 00"), {"count": "0"}),
@@ -53,7 +55,7 @@ CASES = [
     ("StructArg PHY bitmask", event("e0 07 05 01 10 00 08 00 00 20 00 10 00"),
      {"scan_interval": "16,32", "scan_window": "8,16"}),
     ("Count from bitfield plus optional handle", event("e0 08 21 34 12 01 00 02 00"),
-     {"packed_count": "2", "enabled": "True", "value": "1,2"}),
+     {"connection_handle": "0x1234", "packed_count": "2", "enabled": "True", "value": "1,2"}),
     ("No optional handle or values", event("e0 08 00"), {"packed_count": "0", "enabled": "False"}),
     ("Unknown message ID", event("a0 02 00 aa"), {"unknown": True}),
     ("Missing Sample Value", event("b0"), {"malformed": True}),
@@ -86,13 +88,16 @@ def main():
         return
     script = Path(__file__).resolve().parents[1] / "vendor_hci" / "init.lua"
     fields = sorted({key for e in expectations for key in e} | {"malformed", "truncated", "unknown"})
-    command = [args.check, "-n", "-X", f"lua_script:{script}", "-d", "bthci_cmd.vendor=bkv"]
+    command = [str(Path(args.check).resolve()) if Path(args.check).is_file() else args.check,
+               "-n", "-d", "bthci_cmd.vendor=bthci_vendor.samsung"]
+    script_args = ["-X", f"lua_script:{script}"]
 
-    def read(path, two_pass=False):
-        cmd = command + (["-2"] if two_pass else []) + ["-r", str(path), "-T", "fields", "-E", "occurrence=a"]
-        for field in ["frame.number"] + ["bkv." + f for f in fields] + ["_ws.lua.error"]:
+    def read(path, two_pass=False, load_args=None, env=None, cwd=None):
+        cmd = command + (script_args if load_args is None else load_args)
+        cmd += (["-2"] if two_pass else []) + ["-r", str(path.resolve()), "-T", "fields", "-E", "occurrence=a"]
+        for field in ["frame.number"] + ["bthci_vendor.samsung." + f for f in fields] + ["_ws.lua.error"]:
             cmd += ["-e", field]
-        result = subprocess.run(cmd, text=True, capture_output=True, check=True)
+        result = subprocess.run(cmd, text=True, capture_output=True, check=True, env=env, cwd=cwd)
         if "Lua" in result.stderr:
             raise AssertionError(result.stderr)
         return list(csv.reader(io.StringIO(result.stdout), delimiter="\t"))
@@ -110,13 +115,21 @@ def main():
     # Every byte boundary of the valid fixtures, with reported length retained.
     cuts = [(packet[:n], len(packet)) for (_, packet, exp) in CASES
             if not exp.get("malformed") for n in range(1, len(packet))]
-    with tempfile.TemporaryDirectory(prefix="bkv-cuts-") as directory:
+    with tempfile.TemporaryDirectory(prefix="samsung-cuts-") as directory:
         cut_path = Path(directory) / "cuts.btsnoop"
         cut_path.write_bytes(snoop(cuts))
         output = read(cut_path)
         assert len(output) == len(cuts)
         assert all(row[-1] == "" for row in output), "Lua Error in truncated input"
-    print(f"PASS: {len(rows)} field/diagnostic cases, one-pass vs two-pass, {len(cuts)} byte-boundary truncations")
+    # Exercise real folder installation too: 4.4 scans each Lua file separately.
+    # Run outside the repository, with spaces in the path, and without -X.
+    with tempfile.TemporaryDirectory(prefix="samsung plugin install ") as directory:
+        plugins = Path(directory) / "plugins"
+        shutil.copytree(script.parent, plugins / "vendor_hci")
+        env = os.environ.copy()
+        env["WIRESHARK_PLUGIN_DIR"] = str(plugins)
+        assert read(args.output, load_args=[], env=env, cwd=directory) == normal, "Plugin installation changed field output"
+    print(f"PASS: {len(rows)} field/diagnostic cases, one-pass vs two-pass, {len(cuts)} byte-boundary truncations, copied-plugin autoload")
 
 
 if __name__ == "__main__":

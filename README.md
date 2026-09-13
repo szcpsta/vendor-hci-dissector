@@ -2,12 +2,13 @@
 
 Bluetooth HCI vendor decoder를 Wireshark Lua dissector로 이관하기 위한 레포지토리다.
 현재는 BluetoothKit SG를 참고한 **실행 가능한 학습 예제와 마이그레이션 가이드**를 포함한다.
+프로토콜과 모듈 이름은 Samsung 기준으로 정리했으며, 예제 payload는 실제 Samsung 명세가 아니다.
 실제 vendor decoder 이관은 해당 구현과 wire 명세를 확보한 뒤 진행한다.
 
 - [상세 작성·마이그레이션 가이드](docs/WIRESHARK_LUA_DISSECTOR_GUIDE.md)
 - [Windows/PowerShell 실행·설치 가이드](docs/WINDOWS_SETUP.md)
-- [실제 vendor 구현의 권장 패키지 구성](docs/PACKAGE_STRUCTURE.md)
-- [Samsung 프로토콜·필드 이름 제안](docs/WIRESHARK_LUA_DISSECTOR_GUIDE.md#59-samsung-vendor의-이름을-정한다면)
+- [실제 패키지 구성과 코드 읽는 순서](docs/PACKAGE_STRUCTURE.md)
+- [Samsung 프로토콜·필드 이름](docs/WIRESHARK_LUA_DISSECTOR_GUIDE.md#59-samsung-프로토콜과-필드-이름)
 - [참고자료와 전체 URL](docs/WIRESHARK_LUA_DISSECTOR_GUIDE.md#10-참고자료와-전체-url)
 - [검증용 패킷과 기대값](tests/make_examples.py)
 
@@ -16,8 +17,13 @@ Bluetooth HCI vendor decoder를 Wireshark Lua dissector로 이관하기 위한 �
 ```text
 vendor-hci-dissector/
 ├── vendor_hci/                     # Wireshark에 설치할 패키지
-│   ├── init.lua                    # 패키지 진입점
-│   └── bkv_tutorial.lua            # 검증된 예제 dissector
+│   ├── init.lua                    # 명시적으로 실행할 진입점
+│   ├── samsung_dissector.lua       # 등록, HCI 헤더, 분기·최종 진단
+│   ├── samsung_fields.lua          # 공통 필드와 Expert Info 정의
+│   ├── samsung_reader.lua          # 범위 검사와 읽기·표시 helper
+│   ├── samsung_commands.lua        # opcode별 Command 본문
+│   ├── samsung_events.lua          # vendor Event 본문과 학습 예제
+│   └── samsung_command_complete.lua # opcode별 반환 본문 확장 위치
 ├── docs/
 │   ├── WIRESHARK_LUA_DISSECTOR_GUIDE.md
 │   ├── WINDOWS_SETUP.md
@@ -28,15 +34,18 @@ vendor-hci-dissector/
 └── README.md
 ```
 
-Wireshark가 정한 유일한 레포지토리 구조는 없다. **플러그인 하위 디렉터리의 `init.lua`를
-패키지 진입점으로 쓰는 것**은 Wireshark가 지원하는 로딩 규칙이고, 내부 코드와 문서·테스트 배치는
-이 레포의 선택이다. 하위 Lua 파일은 `require()`로 로드한다.
+Wireshark가 정한 유일한 레포지토리 구조는 없다. 이 레포에서는 `init.lua`를 명시적 진입점으로 쓰고
+`require("samsung_dissector")`로 연결한다. 검증한 **4.4.8은 plugin 폴더의 Lua 파일을 개별 스캔**하므로,
+모듈을 같은 폴더에 두고 `samsung_*` 파일 이름과 `require()` 이름을 일치시켰다.
+현재 온라인 문서의 `init.lua` 패키지 규칙을 4.4.8에 그대로 적용하면 안 된다.
+버전별 차이와 선택 이유는 [패키지 구성 가이드](docs/PACKAGE_STRUCTURE.md#44의-자동-로드를-고려한-파일-배치)에 있다.
 [공식 로딩 규칙](https://www.wireshark.org/docs/wsdg_html_chunked/wsluarm.html),
 [공식 모듈 예제](https://www.wireshark.org/docs/wsdg_html_chunked/wslua_require_example.html).
 
-현재 구현은 여러 기법을 모은 단일 학습 모듈이다. 실제 vendor 구현에서는 공통 필드·reader·HCI 처리와
-Command/Event/Command Complete 본문 파서를 분리하는 구성을 권장한다.
-[패키지 구성 가이드](docs/PACKAGE_STRUCTURE.md)에 Samsung을 가정한 파일 배치와 새 메시지 추가 예를 정리했다.
+학습 예제를 공통 필드·reader·HCI 처리와 Command/Event/Command Complete 본문 모듈로 분리했다.
+[samsung_commands.lua](vendor_hci/samsung_commands.lua)의 짧은 파서부터 읽고,
+[samsung_events.lua](vendor_hci/samsung_events.lua)의 `decode_counted_bytes`로 가변 길이 처리를 확인하면 된다.
+[패키지 구성 가이드](docs/PACKAGE_STRUCTURE.md)에 패킷 하나의 실제 호출 경로와 새 메시지 추가 방법을 정리했다.
 필드·프로토콜 등록은 패킷 콜백 밖에서 한 번 수행하고, 순서가 필요한 모듈은 명시적으로 로드한다.
 
 ## 요구 환경
@@ -46,7 +55,7 @@ Command/Event/Command Complete 본문 파서를 분리하는 구성을 권장한
 - 다른 Wireshark/Lua 버전은 아래 검증 명령으로 확인한다.
 
 Wireshark가 내장 Lua와 API를 제공하며, `vendor_hci/init.lua`를 로드하면 프로토콜이 등록된다.
-현재 프로토콜 필터 이름은 `bkv`, 표시 이름은 `BluetoothKit Vendor Tutorial`이다.
+현재 프로토콜 필터 이름은 `bthci_vendor.samsung`, 표시 이름은 `Samsung HCI Vendor`이다.
 별도 Lua 실행 프로그램이나 빌드 과정은 필요하지 않다. 일반 `lua` 명령에는 Wireshark API가
 없으므로, 실제 dissector 실행과 검증은 Wireshark/TShark로 한다.
 
@@ -59,7 +68,7 @@ $tsharkExe = Join-Path $env:ProgramFiles 'Wireshark\tshark.exe'
 $luaEntry = (Resolve-Path .\vendor_hci\init.lua).Path
 $capturePath = Join-Path $env:TEMP 'vendor-hci-examples.btsnoop'
 py -3 tests\make_examples.py $capturePath --check $tsharkExe
-& $tsharkExe '-n' '-r' $capturePath '-X' "lua_script:$luaEntry" '-d' 'bthci_cmd.vendor=bkv' '-V'
+& $tsharkExe '-n' '-r' $capturePath '-X' "lua_script:$luaEntry" '-d' 'bthci_cmd.vendor=bthci_vendor.samsung' '-V'
 ```
 
 설치 경로가 다르면 변수를 수정한다. GUI 실행, 폴더 복사와 junction 연결은
@@ -73,7 +82,7 @@ python3 tests/make_examples.py /tmp/vendor-hci-examples.btsnoop --check tshark
 
 tshark -n -r /tmp/vendor-hci-examples.btsnoop \
   -X lua_script:vendor_hci/init.lua \
-  -d bthci_cmd.vendor=bkv -V
+  -d bthci_cmd.vendor=bthci_vendor.samsung -V
 ```
 
 macOS의 Wireshark 앱 번들을 사용하는 경우:
@@ -85,11 +94,11 @@ python3 tests/make_examples.py /tmp/vendor-hci-examples.btsnoop \
 /Applications/Wireshark.app/Contents/MacOS/Wireshark \
   -r /tmp/vendor-hci-examples.btsnoop \
   -X lua_script:vendor_hci/init.lua \
-  -d bthci_cmd.vendor=bkv
+  -d bthci_cmd.vendor=bthci_vendor.samsung
 ```
 
 `bthci_cmd.vendor`는 Command와 Event가 공유하는 FT_NONE 테이블이다.
-4.4.8에서 사용하는 CLI 문법은 **`-d bthci_cmd.vendor=bkv`**다.
+4.4.8에서 사용하는 CLI 문법은 **`-d bthci_cmd.vendor=bthci_vendor.samsung`**다.
 예제는 Decode As 후보를 등록하며 특정 Company ID에 자동 연결하지 않는다.
 
 ## 설치
@@ -105,13 +114,20 @@ Windows의 일반적인 경로는 `%APPDATA%\Wireshark\plugins`이며 실제 `-G
 <Personal Lua Plugins>/
 └── vendor_hci/
     ├── init.lua
-    └── bkv_tutorial.lua
+    ├── samsung_dissector.lua
+    ├── samsung_fields.lua
+    ├── samsung_reader.lua
+    ├── samsung_commands.lua
+    ├── samsung_events.lua
+    └── samsung_command_complete.lua
 ```
 
 Wireshark를 다시 시작한 뒤 Analyze → Decode As…에서 `BT HCI Vendor`의 프로토콜을
-`BluetoothKit Vendor Tutorial`로 선택한다. 설치 후에는 `-X lua_script` 없이 로드된다.
+`Samsung HCI Vendor`로 선택한다. 설치 후에는 `-X lua_script` 없이 로드된다.
 설치 방식과 개발용 `-X` 방식 중 하나를 사용해 중복 로드를 피한다.
 문서·테스트를 포함한 레포 전체 대신 `vendor_hci` 폴더만 설치한다.
+예전 복사본을 갱신할 때는 폐기된 Lua 파일이 남지 않도록 설치 폴더 전체를 교체한다.
+이전 예제의 필터 이름을 사용하던 스크립트는 [이름 변경표](docs/PACKAGE_STRUCTURE.md#samsung-이름으로-정리한-항목)에 맞춰 갱신한다.
 
 ### 작업 폴더를 직접 연결하기
 
@@ -143,14 +159,14 @@ ln -s /Users/kihunahn/RiderProjects/vendor-hci-dissector/vendor_hci \
 ## 기존 HCI 필드와 함께 필터링하기
 
 필터의 식별자는 내부 숫자 ID나 화면의 `BD_ADDR` label이 아니라
-`bkv.address`, `bthci_evt.bd_addr` 같은 **필터 이름(abbreviation)**이다.
+`bthci_vendor.samsung.bd_addr`, `bthci_evt.bd_addr` 같은 **필터 이름(abbreviation)**이다.
 같은 주소 타입이나 같은 표시 이름만으로 다른 필드가 자동으로 묶이지 않는다.
 
 ```text
 bluetooth.addr == aa:bb:cc:dd:ee:ff ||
 bthci_cmd.bd_addr == aa:bb:cc:dd:ee:ff ||
 bthci_evt.bd_addr == aa:bb:cc:dd:ee:ff ||
-bkv.address == aa:bb:cc:dd:ee:ff
+bthci_vendor.samsung.bd_addr == aa:bb:cc:dd:ee:ff
 ```
 
 `bluetooth.addr`는 모든 BD_ADDR 필드의 자동 집합이 아니라 출발지·목적지 검색용 필드다.
@@ -179,6 +195,7 @@ handle도 Command/Event/ACL/vendor의 실제 필터 이름을 명시적으로 �
 - 28개 패킷의 필드 값과 unknown/malformed/truncated 분류.
 - 일반 분석과 `tshark -2` 재분석 결과 일치.
 - 208개 바이트 경계에서 캡처를 잘라도 Lua Error가 발생하지 않는지 확인.
+- 임시 plugin 폴더에 복사하고 다른 작업 디렉터리에서 `-X` 없이 자동 로드해 같은 결과인지 확인.
 
 ```sh
 python3 tests/make_examples.py /tmp/vendor-hci-examples.btsnoop --check tshark
@@ -188,9 +205,9 @@ python3 tests/make_examples.py /tmp/vendor-hci-examples.btsnoop --check tshark
 
 ```sh
 tshark -n -r /tmp/vendor-hci-examples.btsnoop \
-  -X lua_script:vendor_hci/init.lua -d bthci_cmd.vendor=bkv \
-  -Y bkv -T fields -E header=y -E occurrence=a \
-  -e frame.number -e bkv.address -e bkv.rssi -e bkv.step.data -e bkv.malformed
+  -X lua_script:vendor_hci/init.lua -d bthci_cmd.vendor=bthci_vendor.samsung \
+  -Y bthci_vendor.samsung -T fields -E header=y -E occurrence=a \
+  -e frame.number -e bthci_vendor.samsung.bd_addr -e bthci_vendor.samsung.rssi -e bthci_vendor.samsung.step.data -e bthci_vendor.samsung.malformed
 ```
 
 ## 실제 vendor decoder 이관
