@@ -513,6 +513,11 @@ framenum 필드는 연결을 표시할 뿐 요청 frame을 자동으로 찾지 �
 
 **같이 필터링하려면 어떤 이름으로 필드를 등록하고 추가하는지 맞춰야 한다.**
 다만 여기서 사용하는 식별자는 내부 숫자 ID가 아니라 **필터 이름(abbreviation)**이다.
+대화에서 사용한 "등록 이름"은 설명용 표현이다. 공식 Lua API의 매개변수 이름은 `abbr`이고,
+문서에서는 **Abbreviated name of the field** 또는 **Filter name of the field**로 설명한다.
+이 가이드에서는 이를 **필터 이름(`abbr`, abbreviation)**으로 부른다.
+화면의 이름을 뜻하는 `name`과 구분한다.
+[공식 ProtoField API](https://www.wireshark.org/docs/wsdg_html_chunked/lua_module_Proto.html).
 
 ```lua
 local handle_f = ProtoField.uint16("bkv.handle", "Connection Handle", base.HEX)
@@ -551,6 +556,46 @@ event_tree:add_le(f.handle, event_handle_range)
 별개다. local/peer/identity address처럼 역할이 다르면 역할별 필드를 정의하고,
 필요할 경우 같은 값을 명시적인 공통 검색용 `bkv.address`에도 추가할 수 있다.
 현재 예제의 `bkv.*` 필드는 이 vendor 공통 namespace를 사용하는 방식이다.
+
+#### 이 프로젝트의 필드 관리 규칙
+
+**vendor 필드는 자체 namespace에 정의하고, Command/Event에서 같은 의미의 필드를 공유한다.**
+Samsung으로 이관할 경우 공통 handle의 필터 이름은 `bthci_vendor.samsung.connection_handle`로 한다.
+vendor 값을 추가하기 위해 `bthci_cmd.connection_handle`, `bthci_evt.connection_handle` 등의
+표준 필터 이름을 새로 등록하지 않는다. 상위 dissector가 만든 표준 필드를 `Field.new()`로 읽거나
+표준 필터와 vendor 필터를 OR로 조합하는 것은 이 규칙과 별개다.
+현재 학습 예제는 `bkv.*`를 유지한다.
+
+필터 이름은 저장된 display filter, 필터 버튼, TShark의 `-e`, 출력 처리 스크립트가 의존하는
+외부 인터페이스다. 새 메시지 파서를 추가할 때마다 즉석에서 이름을 만들지 않고,
+기존 정의의 의미를 확인한 뒤 같은 `ProtoField` 객체를 사용한다.
+
+현재 예제에서는 [bkv_tutorial.lua](../vendor_hci/bkv_tutorial.lua)의 `local f` 테이블이 정의의 기준이다.
+모듈을 분리할 때는 이를 `fields.lua` 같은 공통 모듈로 옮기고 Command/Event 파서가 참조한다.
+필드 생성과 `p.fields` 등록은 초기화 때 수행하며, 패킷마다 또는 각 파서에서 반복하지 않는다.
+공통 모듈로 분리하는 시점에도 기존 필터 이름을 바꿀 필요는 없다.
+
+현재 예제의 주요 공통 정의는 다음과 같다.
+
+| Lua 참조 | 필터 이름 | 타입 | 재사용할 의미 |
+|---|---|---|---|
+| `f.handle` | `bkv.handle` | `uint16` | 예제의 connection handle. vendor 내부 object handle과 구분 |
+| `f.address` | `bkv.address` | `ether` | 공통 검색 대상으로 추가한 BD_ADDR. wire 바이트 순서를 변환해 추가 |
+| `f.rssi` | `bkv.rssi` | `int8` | dBm 단위의 RSSI. unsigned 값이나 임의의 신호 품질 지수와 구분 |
+
+실제 vendor 필드 목록에는 **필터 이름, 코드에서 참조할 키, 타입, 의미·주소 역할, 단위,
+mask·정규화 규칙, enum 코드의 의미, 적용 메시지와 firmware 조건**을 함께 기록한다.
+필터 이름이 같아도 타입이나 의미를 바꾸면 기존 사용자의 검색 결과가 달라질 수 있다.
+표시용 `name`을 바꾸는 것과 필터 이름·타입·의미를 바꾸는 것을 구분해 검토한다.
+
+새 디코더를 추가할 때는 다음 순서로 확인한다.
+
+1. 공통 필드 목록과 정의 코드를 찾아 의미·타입·단위가 맞는 기존 필드가 있는지 확인한다.
+2. 일치하면 같은 정의를 재사용한다. Command/Event 구분만으로 handle 필드를 새로 만들지 않는다.
+3. 의미가 다르거나 새 항목이면 자체 namespace에 정의하고 필드 목록을 함께 갱신한다.
+   서로 다른 enum을 사용하는 status나 connection/object handle은 별도 정의한다.
+4. 실제 또는 합성 패킷에서 공통 필터와 TShark 필드 추출로 새 메시지도 선택되고 값이 맞는지 확인한다.
+5. 이미 배포한 필터 이름을 변경해야 한다면 기존 필터·export 소비자와 이관 방법을 함께 검토한다.
 
 #### 기본 HCI 필드와는 명시적으로 합쳐 검색
 
@@ -634,6 +679,8 @@ native와 vendor 데이터를 한 캡처에 넣어 필터·표시·export를 검
 자기 namespace를 쓰면 필드의 출처와 정책을 관리하기 쉽고, OR 필터로 기본 HCI와 함께 검색할 수 있다.
 기존 필터식 그대로 vendor도 검색해야 한다는 요구가 있다면 의도적인 공통 이름 사용을 선택할 수 있다.
 두 방식 중 어느 쪽을 사용할지 migration 초기에 결정한다.
+이 프로젝트에서 채택한 기본 규칙은 위의 **자체 vendor namespace + 공통 필드 재사용**이다.
+이 절의 같은 이름 등록 예시는 API가 허용하는 선택지를 설명하며, 현재 채택한 규칙을 변경하지 않는다.
 
 `bluetooth.addr`를 편의상 모든 vendor 주소의 alias로 추가하는 것은 의미를 넓히는 선택이다.
 필터 목록 속 주소가 패킷의 출발지나 목적지라는 뜻은 아니므로, 명시적인 요구 없이 그렇게 묶지 않는다.

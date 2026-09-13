@@ -156,6 +156,9 @@ handle도 Command/Event/ACL/vendor의 실제 필터 이름을 명시적으로 �
 
 공통 vendor 필드 규칙, 기존 필터 이름의 의도적인 공유, handle 수명과 address type은
 [가이드의 필드 식별자·통합 필터 절](docs/WIRESHARK_LUA_DISSECTOR_GUIDE.md#57-필드-식별자와-기존-wireshark-필터의-연동)에 설명했다.
+이 프로젝트에서는 자체 vendor namespace를 사용하고 Command/Event의 공통 필드를 재사용한다.
+새 디코더를 추가할 때는 [필드 관리 규칙](docs/WIRESHARK_LUA_DISSECTOR_GUIDE.md#이-프로젝트의-필드-관리-규칙)에 따라
+기존 정의의 의미·타입·단위를 먼저 확인한다. 공식 Lua API에서 필터 이름의 매개변수는 `abbr`다.
 
 ## 예제의 범위
 
