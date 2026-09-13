@@ -8,6 +8,8 @@
 확인 환경은 설치된 **Wireshark/TShark 4.4.8, Lua 5.4.6**이다.
 `/Users/kihunahn/Downloads/wireshark-master`는 호출 경로와 구현을 읽는 데 사용했다.
 이 소스 트리의 동작과 설치 바이너리가 항상 같다고 가정하지 않는다.
+Windows 개발자를 위한 PowerShell 명령·설치·폴더 연결·재로드 방법은
+[Windows 실행 가이드](WINDOWS_SETUP.md)에 있다. 아래 Lua 파싱·필드 설계 설명은 두 OS에서 공통으로 적용한다.
 
 ## 읽는 순서와 실행 파일
 
@@ -21,6 +23,9 @@
 8. [개발·마이그레이션](#8-필터-출력-재분석과-마이그레이션): 테스트, 출력, 상태, 이관 순서.
 9. [구현 간 차이](#9-작성자에-따라-구현이-얼마나-달라지는가): 비슷해지는 부분과 동작을 달리하는 선택.
 10. [참고자료와 전체 URL](#10-참고자료와-전체-url): 공식 문서와 구현 소스의 주소.
+
+환경별 실행: [Windows/PowerShell](WINDOWS_SETUP.md), [macOS 및 공통 로딩 흐름](#2-예제를-직접-실행하기).
+이름 설계 예: [Samsung 프로토콜·필드 이름](#59-samsung-vendor의-이름을-정한다면).
 
 완성된 실행 코드는 [bkv_tutorial.lua](../vendor_hci/bkv_tutorial.lua)에 있다.
 [make_examples.py](../tests/make_examples.py)는 합성 btsnoop 파일을 만들고
@@ -104,6 +109,46 @@ Lua에서 주의할 점:
 바이트 읽기는 [Tvb API](https://www.wireshark.org/docs/wsdg_html_chunked/lua_module_Tvb.html)를 참고한다.
 
 ## 2. 예제를 직접 실행하기
+
+### 빌드 없이 Wireshark에서 실행하는 개발 흐름
+
+이 프로젝트의 실행 환경은 Wireshark/TShark에 내장된 Lua다. 일반 Lua 실행 프로그램에는
+`Proto`, `Tvb`, `DissectorTable` 같은 Wireshark API가 없으므로, dissector를 단독 실행하지 않는다.
+별도 빌드나 컴파일 단계 없이 소스 패키지를 직접 로드한다.
+
+연결·설치 단위는 레포 전체가 아니라 **`vendor_hci/` 폴더**다. `init.lua`가 패키지 진입점이며
+필요한 파일은 `require()`로 읽는다. 개발 중에는 다음 중 한 가지 방식을 사용한다.
+
+| 방식 | 작업 방법 | 수정 후 반영 |
+|---|---|---|
+| `-X lua_script:vendor_hci/init.lua` | 설치 없이 진입점의 경로를 지정 | TShark 재실행, GUI에서는 Lua 재로드 또는 재시작 |
+| Personal Lua Plugins에 복사 | `vendor_hci` 폴더 전체를 복사 | 변경 파일 복사 후 Lua 재로드 또는 재시작 |
+| Personal Lua Plugins에 링크 | macOS/Linux는 심볼릭 링크, Windows는 junction으로 `vendor_hci` 연결 | 파일 복사 없이 Lua 재로드 또는 재시작 |
+
+GUI의 메뉴는 Analyze → Reload Lua Plugins다. 실행 중인 Lua 상태는 파일 저장만으로 갱신되지 않는다.
+일반 실행에서는 `require()`가 모듈을 캐시하므로, 수정 후 전체 Lua 재로드 또는 새 프로세스 실행으로 확인한다.
+설치/링크와 `-X`로 같은 코드를 중복 로드하지 않는다.
+실제 심볼릭 링크 명령은 [README의 작업 폴더 연결](../README.md#작업-폴더를-직접-연결하기)에 있다.
+
+### Windows 실행 명령
+
+PowerShell에서 레포지토리 루트로 이동한 뒤 실행한다. Wireshark 설치 위치가 다르면 수정한다.
+
+```powershell
+$tsharkExe = Join-Path $env:ProgramFiles 'Wireshark\tshark.exe'
+$luaEntry = (Resolve-Path .\vendor_hci\init.lua).Path
+$capturePath = Join-Path $env:TEMP 'vendor-hci-examples.btsnoop'
+py -3 tests\make_examples.py $capturePath --check $tsharkExe
+& $tsharkExe '-n' '-r' $capturePath '-X' "lua_script:$luaEntry" '-d' 'bthci_cmd.vendor=bkv' '-V'
+```
+
+Personal Lua Plugins는 보통 `%APPDATA%\Wireshark\plugins`이며 `& $tsharkExe -G folders`로 확인한다.
+폴더 복사 또는 junction으로 `vendor_hci`를 연결할 수 있다. 설치/연결 후에는 `-X`를 생략한다.
+자세한 환경 준비, GUI 실행, 경로에 공백이 있을 때의 인수 전달, 재로드 방법은
+[Windows 실행 가이드](WINDOWS_SETUP.md)를 따른다. 여기 제시한 Windows 절차는 공식 문서를 참고했으며
+Windows에서 직접 실행 검증한 결과는 아니다.
+
+### macOS 실행 명령
 
 vendor-hci-dissector 레포지토리 루트에서 실행한다. 아래 경로는 이 머신에 설치된 프로그램 경로다.
 
@@ -463,6 +508,266 @@ framenum 필드는 연결을 표시할 뿐 요청 frame을 자동으로 찾지 �
 
 필드 타입·enum·mask는 [ProtoField API](https://www.wireshark.org/docs/wsdg_html_chunked/lua_module_Proto.html),
 표시 문자열·generated·expert 추가는 [Tree API](https://www.wireshark.org/docs/wsdg_html_chunked/lua_module_Tree.html)를 참고한다.
+
+### 5.7 필드 식별자와 기존 Wireshark 필터의 연동
+
+**같이 필터링하려면 어떤 이름으로 필드를 등록하고 추가하는지 맞춰야 한다.**
+다만 여기서 사용하는 식별자는 내부 숫자 ID가 아니라 **필터 이름(abbreviation)**이다.
+
+```lua
+local handle_f = ProtoField.uint16("bkv.handle", "Connection Handle", base.HEX)
+--                                필터 이름      화면에 표시할 이름
+```
+
+| 개념 | 예 | 의미 |
+|---|---|---|
+| display name | `Connection Handle` | 사람이 읽는 label. 같아도 같은 필터가 되지 않음 |
+| abbreviation | `bkv.handle` | display filter와 `tshark -e`에서 지정하는 이름 |
+| field type | `FT_UINT16`, `FT_ETHER` | 값의 해석·비교 방식. 타입이 같다고 이름이 합쳐지지 않음 |
+| Wireshark 내부 field ID | 등록 시 할당되는 숫자 | 내부 식별자. 플러그인이 고정 숫자를 맞춰 관리할 대상이 아님 |
+| BluetoothKit `FieldDefinition` | PropertyName, DisplayName과 객체 identity | BluetoothKit 내부 계약. Wireshark 등록과 자동 연동되지 않음 |
+
+#### vendor 메시지 사이에서는 공통 필드 정의를 사용
+
+같은 의미의 handle을 command와 event에서 함께 검색하려면 하나의 `ProtoField`를 공유한다.
+
+```lua
+local f = {
+    handle = ProtoField.uint16("bkv.handle", "Connection Handle", base.HEX),
+    address = ProtoField.ether("bkv.address", "BD_ADDR")
+}
+p.fields = f
+
+-- 서로 다른 메시지의 파서에서 같은 정의를 사용한다.
+command_tree:add_le(f.handle, command_handle_range)
+event_tree:add_le(f.handle, event_handle_range)
+```
+
+이렇게 추가된 모든 출현은 `bkv.handle == 0x0042`로 검색된다.
+각 opcode마다 `bkv.command_a.handle`, `bkv.event_b.handle`처럼 별도 이름을 만들면
+한 필터로 묶기 위해 해당 이름들을 다시 열거해야 한다.
+
+서로 다른 의미까지 같은 이름으로 묶지는 않는다. HCI connection handle과 vendor 내부 object handle은
+별개다. local/peer/identity address처럼 역할이 다르면 역할별 필드를 정의하고,
+필요할 경우 같은 값을 명시적인 공통 검색용 `bkv.address`에도 추가할 수 있다.
+현재 예제의 `bkv.*` 필드는 이 vendor 공통 namespace를 사용하는 방식이다.
+
+#### 기본 HCI 필드와는 명시적으로 합쳐 검색
+
+설치된 4.4.8에서 확인한 필드 이름은 다음과 같다.
+
+| 의미 | 기본 dissector의 필터 이름 | 예제의 필터 이름 |
+|---|---|---|
+| Command의 BD_ADDR | `bthci_cmd.bd_addr` | `bkv.address` |
+| Event의 BD_ADDR | `bthci_evt.bd_addr` | `bkv.address` |
+| Bluetooth 출발지 또는 목적지 주소 | `bluetooth.addr` | 자동 연동 없음 |
+| Command의 connection handle | `bthci_cmd.connection_handle` | `bkv.handle` |
+| Event의 connection handle | `bthci_evt.connection_handle` | `bkv.handle` |
+| ACL/SCO/ISO header의 handle | `bthci_acl.chandle`, `bthci_sco.chandle`, `bthci_iso.chandle` | `bkv.handle` |
+
+필드 이름에 `.address`나 `.handle`이 들어간다고 공통 검색 대상이 자동 생성되는 것은 아니다.
+또 `ProtoField.ether`라고 해서 `bluetooth.addr`에 자동 포함되지 않는다.
+`bluetooth.addr`는 Bluetooth 계층이 추가하는 **Source or Destination** 필드다.
+본문에 등장하는 과거 주소, 필터 목록의 주소, peer 정보 등 모든 BD_ADDR를 의미하지 않는다.
+
+예를 들어 주소를 넓게 검색하려면 다음처럼 OR로 연결한다.
+
+```text
+bluetooth.addr == aa:bb:cc:dd:ee:ff ||
+bthci_cmd.bd_addr == aa:bb:cc:dd:ee:ff ||
+bthci_evt.bd_addr == aa:bb:cc:dd:ee:ff ||
+bkv.address == aa:bb:cc:dd:ee:ff
+```
+
+handle은 다음처럼 검색할 수 있다.
+
+```text
+bthci_cmd.connection_handle == 0x0042 ||
+bthci_evt.connection_handle == 0x0042 ||
+bthci_acl.chandle == 0x0042 ||
+bthci_sco.chandle == 0x0042 ||
+bthci_iso.chandle == 0x0042 ||
+bkv.handle == 0x0042
+```
+
+이는 위에 열거한 필드들의 검색식이다. LE 전용 주소 필드나 다른 vendor plugin의 별도 이름까지
+자동 포함하지 않으므로 필요한 필드를 실제 캡처와 등록 목록에서 추가한다.
+자주 쓰는 식은 Wireshark의 필터 버튼이나 display filter macro로 저장할 수 있다.
+Lua plugin이 로드되지 않았다면 `bkv.*`가 등록되지 않아 해당 필터식이 유효하지 않을 수 있다.
+
+현재 환경의 정확한 필드 이름과 타입은 다음 명령으로 확인한다.
+
+```sh
+tshark -G fields | rg 'bthci_(cmd|evt)\.(bd_addr|connection_handle)|bthci_(acl|sco|iso)\.chandle|bluetooth\.addr'
+tshark -G fields -X lua_script:vendor_hci/init.lua | rg 'bkv\.(address|handle)'
+```
+
+필터 문법은 [wireshark-filter](https://www.wireshark.org/docs/man-pages/wireshark-filter.html),
+기본 필드는 [Bluetooth](https://www.wireshark.org/docs/dfref/b/bluetooth.html),
+[HCI Command](https://www.wireshark.org/docs/dfref/b/bthci_cmd.html),
+[HCI Event](https://www.wireshark.org/docs/dfref/b/bthci_evt.html) 레퍼런스에도 있다.
+
+#### 기존 필터 이름을 직접 공유하는 것도 가능한가
+
+가능하다. Wireshark는 같은 abbreviation 아래 여러 필드 정의를 허용한다.
+Lua도 기존 필드와 호환되지 않는 타입은 거부하지만, **동일한 필터 이름의 등록을 항상 금지하지는 않는다.**
+4.4.8에서 native HCI Event와 Lua가 같은 이름으로 추가한 값을 같은 필터가 선택하는 것도 확인했다.
+
+```lua
+-- 설계 선택을 설명하는 코드. 현재 예제에 기본 적용된 설정은 아니다.
+-- 실제 의미가 HCI Event의 connection handle과 일치하는 경우를 전제로 한다.
+local shared_handle_f = ProtoField.uint16(
+    "bthci_evt.connection_handle", "Connection Handle", base.HEX)
+p.fields = {shared_handle_f}
+
+-- vendor event 파서 안, 의미와 길이를 확인한 range에 대해:
+vendor_event_tree:add_le(shared_handle_f, handle_range)
+```
+
+이 경우 `bthci_evt.connection_handle == 0x0042`는 해당 Lua 출현도 검색할 수 있다.
+이것은 **기존의 숫자 field ID를 재사용하는 작업이 아니라 같은 abbreviation을 가진 별도 정의의 등록**이다.
+`Field.new("bthci_evt.connection_handle")`는 이미 분석된 값을 읽는 extractor이며,
+트리에 쓰기 위해 기존 `ProtoField` 객체를 얻는 함수가 아니다.
+
+기존 이름을 공유하려면 의미, 타입, 정규화된 값, 단위와 mask를 확인하고,
+native와 vendor 데이터를 한 캡처에 넣어 필터·표시·export를 검증한다.
+자기 namespace를 쓰면 필드의 출처와 정책을 관리하기 쉽고, OR 필터로 기본 HCI와 함께 검색할 수 있다.
+기존 필터식 그대로 vendor도 검색해야 한다는 요구가 있다면 의도적인 공통 이름 사용을 선택할 수 있다.
+두 방식 중 어느 쪽을 사용할지 migration 초기에 결정한다.
+
+`bluetooth.addr`를 편의상 모든 vendor 주소의 alias로 추가하는 것은 의미를 넓히는 선택이다.
+필터 목록 속 주소가 패킷의 출발지나 목적지라는 뜻은 아니므로, 명시적인 요구 없이 그렇게 묶지 않는다.
+같은 raw range를 기존 필드와 자기 필드에 중복 추가하면 export에 두 출현이 생길 수 있다는 점도 고려한다.
+
+소스 근거는 [Lua 필드 정의](https://github.com/wireshark/wireshark/blob/master/epan/wslua/wslua_proto_field.c)의 `check_field_name()`,
+[proto.c](https://github.com/wireshark/wireshark/blob/master/epan/proto.c)의 same-abbreviation 등록 처리,
+[packet-bluetooth.c](https://github.com/wireshark/wireshark/blob/master/epan/dissectors/packet-bluetooth.c)의 주소 필드 추가 경로다.
+이 공개 URL과 대응하는 로컬 snapshot을 읽었으며, 공개 master가 같은 revision이라는 뜻은 아니다.
+
+#### 필터 이름을 통일해도 연결 상태는 별도로 추적해야 한다
+
+display filter는 각 frame에 **실제로 추가된 필드**를 평가한다.
+이전 frame에서 주소와 handle을 함께 봤다는 이유만으로, 이후 handle-only vendor frame에 주소가 자동 추가되지는 않는다.
+`address == A && handle == H`는 서로 다른 두 frame을 join하는 식이 아니다.
+
+주소만으로 해당 연결의 vendor 패킷까지 찾으려면 다음 중 하나가 필요하다.
+
+- 주소와 연결된 handle을 확인하고 두 검색식을 OR로 묶되, 연결의 시간 범위와 controller를 제한한다.
+- dissector에서 연결 수명에 맞는 address↔handle 상태를 관리하고, 추론한 주소를 generated field로 추가한다.
+
+HCI handle은 전역 장치 ID가 아니다. controller마다 같은 값이 존재할 수 있고, 연결이 종료된 뒤
+재사용될 수 있다. 상태 key는 캡처에서 식별 가능한 interface/adapter와 handle, 연결 수명을 포함해야 한다.
+실제 캡처 형식에 따라 adapter metadata가 다르므로 존재하지 않는 필드 이름을 가정하지 않는다.
+주소도 public/random/identity/RPA의 의미를 구분한다. 서로 다른 주소가 동일 장치인지 판단하는 것은
+바이트 순서 변환이나 필터 이름 통일만으로 해결되지 않는다.
+
+packed header의 handle을 원시 flag bits와 함께 비교하지 않는다. 예를 들어 native ACL/SCO/ISO의
+`.chandle`은 mask `0x0FFF`를 사용하는 필드다. vendor의 handle도 해당 wire layout에 맞게
+정규화하되, 이미 순수한 handle인 필드에 임의의 mask를 적용하지 않는다.
+
+이름을 공유하는 것만으로 Wireshark의 native 연결 추적, conversation, 요청·응답 매칭 상태가
+자동 갱신되지는 않는다. 단순 필터 통합과 상태 통합을 별도 요구사항으로 구분한다.
+
+#### 실제로 확인한 필터 동작
+
+기존 28개 예제와 별도로 다음 6개 합성 frame을 사용해 4.4.8에서 확인했다.
+
+| frame | 내용 |
+|---:|---|
+| 1 | native Disconnect Command, handle 0x0042 |
+| 2 | native Disconnection Complete Event, handle 0x0042 |
+| 3 | vendor handle-only Event, handle 0x0042 |
+| 4 | native Create Connection Command, BD_ADDR aa:bb:cc:dd:ee:ff |
+| 5 | native Connection Complete Event, 같은 주소와 handle |
+| 6 | vendor address-only Event, 같은 주소 |
+
+native handle 식은 1·2·5, vendor handle 식은 3, 두 종류를 포함한 OR 식은 1·2·3·5를 선택했다.
+주소 OR 식은 4·5·6을 선택했다. `bkv.address == A && bkv.handle == H`는 아무 frame도 선택하지 않았다.
+별도 검증 모듈에서 같은 native abbreviation을 등록했을 때는 native와 Lua 출현 모두를 검색할 수 있었다.
+이 검증을 위해 기본 예제의 필드 이름이나 등록 방식을 변경하지는 않았다.
+
+### 5.8 이관 전에 함께 정할 규칙
+
+| 항목 | 결정할 내용 |
+|---|---|
+| 필드 API | 공통 namespace, abbreviation, 타입, 단위, 역할별 필드, 기존 이름 공유 여부 |
+| 패킷 선택 | HCI 진입점의 offset, Command/CC/CS/Event 구분, Decode As 적용 범위와 manufacturer 식별 |
+| 원시값과 표시 | 주소 순서, signedness, packed handle mask, enum, 환산값과 generated 표시 |
+| 가변 구조 | count와 length의 단위, child 경계, zero length, unknown version/TLV, trailing bytes 정책 |
+| 상태의 범위 | handle 재사용, adapter 구분, 주소 역할, fragment·요청/응답 상태와 재분석 |
+| 출력 소비자 | 반복 필드와 subtree의 구조, 여러 entry에 걸친 AND 조건, 필터 이름 변경의 호환성 |
+
+여기서 예시로 든 `bkv.*`와 `bthci_*`는 **display filter**다. TShark에서는 `-Y`로 사용한다.
+캡처 단계의 `-f` capture filter가 Lua의 해석 결과를 보는 것은 아니다.
+완전한 지원 여부는 정상 패킷 표시뿐 아니라 실제 캡처에서 필드 존재·필터·오류·재분석 결과로 확인한다.
+
+### 5.9 Samsung vendor의 이름을 정한다면
+
+Samsung용으로 이관할 때는 **`bthci_vendor.samsung`을 프로토콜과 공통 필터 접두사로 제안한다.**
+기본 dissector의 `bthci_vendor.broadcom`, `bthci_vendor.intel`과 같은 형식이다.
+이는 이 프로젝트의 제안이며 Wireshark에 이미 공식 Samsung dissector가 있다는 뜻은 아니다.
+확인한 4.4.8에는 같은 프로토콜 이름이 없었지만, 실제 배포 대상 버전과 다른 plugin의 등록도 확인한다.
+위 이름을 사용하는 임시 Lua 모듈의 프로토콜·필드 등록은 4.4.8에서 확인했다.
+
+| 대상 | 제안하는 이름 | 역할 |
+|---|---|---|
+| Git 레포지토리 | 현재 `vendor-hci-dissector` 유지 | 저장소 이름. filter 이름과 독립적 |
+| 배포 패키지 폴더 | Samsung 전용 패키지라면 `samsung_hci/` | 폴더의 `init.lua`가 진입점 |
+| Lua Proto 이름 | `bthci_vendor.samsung` | 프로토콜 존재 필터, Decode As의 dissector 선택 이름 |
+| 표시 이름 | `Samsung HCI Vendor` | GUI에서 사람이 읽는 프로토콜 이름 |
+| 공통 connection handle | `bthci_vendor.samsung.connection_handle` | 같은 의미의 HCI handle을 여러 vendor 메시지에서 공통 검색 |
+| 공통 BD_ADDR | `bthci_vendor.samsung.bd_addr` | 의도적으로 이 필드에 추가한 주소들의 공통 검색 |
+| 역할별 주소 | `.local_bd_addr`, `.peer_bd_addr`, `.identity_bd_addr` | 공통 prefix 뒤에 역할을 구분 |
+| 주소 타입 | `bthci_vendor.samsung.address_type` | public/random 등의 구분 |
+| vendor subevent | `bthci_vendor.samsung.subevent_code` | 라우팅 값 |
+| vendor message ID | `bthci_vendor.samsung.message_id` | 라우팅 값. 실제 wire 폭에 맞는 타입 선택 |
+| vendor 내부 object handle | `bthci_vendor.samsung.object_handle` | HCI connection handle과 의미가 다른 값 |
+
+기본 선언의 형태는 다음과 같다.
+
+```lua
+local samsung = Proto("bthci_vendor.samsung", "Samsung HCI Vendor")
+local f = {
+    connection_handle = ProtoField.uint16(
+        "bthci_vendor.samsung.connection_handle", "Connection Handle", base.HEX),
+    bd_addr = ProtoField.ether("bthci_vendor.samsung.bd_addr", "BD_ADDR"),
+    peer_bd_addr = ProtoField.ether("bthci_vendor.samsung.peer_bd_addr", "Peer BD_ADDR")
+}
+samsung.fields = f
+```
+
+동일 의미의 connection handle은 Command/Event/Message별 parser에서 `f.connection_handle`을 재사용한다.
+공통 검색을 원하면서 `.command_x.handle`, `.event_y.handle`처럼 모두 다른 이름을 만들지 않는다.
+메시지 고유 필드에는 `.scan_report.rssi`처럼 역할을 나타내는 하위 이름을 사용할 수 있다.
+동일한 숫자 코드라도 의미·enum이 다른 status 필드는 별도 정의한다.
+
+Samsung용 구현을 등록했다면 다음처럼 검색한다.
+
+```text
+bthci_vendor.samsung
+bthci_vendor.samsung.connection_handle == 0x0042
+bthci_vendor.samsung.bd_addr == aa:bb:cc:dd:ee:ff
+```
+
+기본 HCI까지 검색할 때는 다음과 같이 기존 field와 OR로 묶을 수 있다.
+
+```text
+bthci_evt.connection_handle == 0x0042 ||
+bthci_cmd.connection_handle == 0x0042 ||
+bthci_acl.chandle == 0x0042 ||
+bthci_vendor.samsung.connection_handle == 0x0042
+```
+
+같은 기존 abbreviation을 직접 공유하는 선택도 5.7절처럼 가능하지만,
+Samsung namespace의 등록만으로 native 필드와 합쳐지는 것은 아니다.
+Samsung packet 본문에 peer address가 있다고 `bluetooth.addr`의 endpoint 의미로 자동 변환하지 않는다.
+
+패키지 폴더를 바꾸면 설치 경로·진입점·테스트 경로를 함께 바꾸고,
+Proto 이름을 바꾸면 Decode As 인수도 `bthci_cmd.vendor=bthci_vendor.samsung`으로 변경한다.
+**현재 실행 예제는 계속 `vendor_hci/`, `bkv`, `bkv.*`를 사용한다.**
+이 절은 이름 설계 예시이며, 실제 Samsung wire layout을 구현하거나 기존 예제를 이름만 바꾼 것은 아니다.
+
+명명 방식의 기존 예는 [Broadcom HCI 필드 레퍼런스](https://www.wireshark.org/docs/dfref/b/bthci_vendor.broadcom.html)를 참고한다.
 
 ## 6. 레이아웃별 예제
 
@@ -1057,7 +1362,7 @@ fragment나 요청·응답 상태가 없는 메시지는 패킷별 parser만으�
 
 ## 10. 참고자료와 전체 URL
 
-앞서 설명과 본문에서 언급한 외부 링크를 주소까지 확인할 수 있도록 모았다.
+본문, README와 Windows 가이드에서 언급한 외부 참고 링크를 주소까지 확인할 수 있도록 모았다.
 온라인 API 문서는 갱신될 수 있으므로 설치한 Wireshark 버전의 지원 여부와 함께 확인한다.
 `wireshark-4.4.8` 링크는 설치 바이너리와 맞춘 소스이며 `master` 링크는 변경될 수 있다.
 
@@ -1074,6 +1379,14 @@ fragment나 요청·응답 상태가 없는 메시지는 패킷별 parser만으�
 | [Pinfo](https://www.wireshark.org/docs/wsdg_html_chunked/lua_module_Pinfo.html) | `https://www.wireshark.org/docs/wsdg_html_chunked/lua_module_Pinfo.html` | frame 정보, 컬럼, visited, 재조립 관련 속성 |
 | [Int64 / UInt64](https://www.wireshark.org/docs/wsdg_html_chunked/lua_module_Int64.html) | `https://www.wireshark.org/docs/wsdg_html_chunked/lua_module_Int64.html` | 큰 정수를 정확히 보관하고 연산하는 방법 |
 | [Plugin folders](https://www.wireshark.org/docs/wsug_html_chunked/ChPluginFolders.html) | `https://www.wireshark.org/docs/wsug_html_chunked/ChPluginFolders.html` | 플러그인 설치 폴더 |
+| [Windows folders](https://www.wireshark.org/docs/wsug_html_chunked/ChWindowsFolder.html) | `https://www.wireshark.org/docs/wsug_html_chunked/ChWindowsFolder.html` | Windows 사용자 폴더와 경로 |
+| [Display filter 문법](https://www.wireshark.org/docs/man-pages/wireshark-filter.html) | `https://www.wireshark.org/docs/man-pages/wireshark-filter.html` | 필드 비교, 반복 필드, 논리 연산 |
+| [Bluetooth 필드](https://www.wireshark.org/docs/dfref/b/bluetooth.html) | `https://www.wireshark.org/docs/dfref/b/bluetooth.html` | `bluetooth.addr` 등 기본 필드 |
+| [HCI Command 필드](https://www.wireshark.org/docs/dfref/b/bthci_cmd.html) | `https://www.wireshark.org/docs/dfref/b/bthci_cmd.html` | Command 주소·handle 필드 |
+| [HCI Event 필드](https://www.wireshark.org/docs/dfref/b/bthci_evt.html) | `https://www.wireshark.org/docs/dfref/b/bthci_evt.html` | Event 주소·handle 필드 |
+| [Broadcom HCI 필드](https://www.wireshark.org/docs/dfref/b/bthci_vendor.broadcom.html) | `https://www.wireshark.org/docs/dfref/b/bthci_vendor.broadcom.html` | vendor namespace와 공통 필드 명명 예 |
+| [Microsoft New-Item](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.management/new-item?view=powershell-7.5) | `https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.management/new-item?view=powershell-7.5` | PowerShell 폴더·junction·symbolic link 생성 |
+| [Microsoft mklink](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/mklink) | `https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/mklink` | Windows 링크와 directory junction 구분 |
 
 ### HCI와 Lua 구현 소스
 
@@ -1087,6 +1400,9 @@ fragment나 요청·응답 상태가 없는 메시지는 패킷별 parser만으�
 | [master Lua 초기화·호출](https://github.com/wireshark/wireshark/blob/master/epan/wslua/init_wslua.c) | `https://github.com/wireshark/wireshark/blob/master/epan/wslua/init_wslua.c` | Lua Error handler와 Expert Info 등록 |
 | [master Lua 필드 정의](https://github.com/wireshark/wireshark/blob/master/epan/wslua/wslua_proto_field.c) | `https://github.com/wireshark/wireshark/blob/master/epan/wslua/wslua_proto_field.c` | field 타입, valuestring, unit·range string |
 | [master Lua tree](https://github.com/wireshark/wireshark/blob/master/epan/wslua/wslua_tree.c) | `https://github.com/wireshark/wireshark/blob/master/epan/wslua/wslua_tree.c` | typed field 추가와 값·인코딩 처리 |
+| [master 필드 등록](https://github.com/wireshark/wireshark/blob/master/epan/proto.c) | `https://github.com/wireshark/wireshark/blob/master/epan/proto.c` | 내부 field ID와 같은 abbreviation의 복수 등록 |
+| [master Bluetooth](https://github.com/wireshark/wireshark/blob/master/epan/dissectors/packet-bluetooth.c) | `https://github.com/wireshark/wireshark/blob/master/epan/dissectors/packet-bluetooth.c` | source/destination 및 `bluetooth.addr` 추가 경로 |
+| [master GUI Lua 재로드](https://github.com/wireshark/wireshark/blob/master/ui/qt/wireshark_main_window_slots.cpp) | `https://github.com/wireshark/wireshark/blob/master/ui/qt/wireshark_main_window_slots.cpp` | Reload Lua Plugins 동작 |
 
 로컬에서 직접 읽은 소스 루트는 `/Users/kihunahn/Downloads/wireshark-master`다.
 위 master URL은 같은 파일의 공개 경로이며, 로컬 snapshot과 같은 revision이라는 뜻은 아니다.
