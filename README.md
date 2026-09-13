@@ -6,6 +6,7 @@ Bluetooth HCI vendor decoder를 Wireshark Lua dissector로 이관하기 위한 �
 
 - [상세 작성·마이그레이션 가이드](docs/WIRESHARK_LUA_DISSECTOR_GUIDE.md)
 - [Windows/PowerShell 실행·설치 가이드](docs/WINDOWS_SETUP.md)
+- [실제 vendor 구현의 권장 패키지 구성](docs/PACKAGE_STRUCTURE.md)
 - [Samsung 프로토콜·필드 이름 제안](docs/WIRESHARK_LUA_DISSECTOR_GUIDE.md#59-samsung-vendor의-이름을-정한다면)
 - [참고자료와 전체 URL](docs/WIRESHARK_LUA_DISSECTOR_GUIDE.md#10-참고자료와-전체-url)
 - [검증용 패킷과 기대값](tests/make_examples.py)
@@ -19,7 +20,8 @@ vendor-hci-dissector/
 │   └── bkv_tutorial.lua            # 검증된 예제 dissector
 ├── docs/
 │   ├── WIRESHARK_LUA_DISSECTOR_GUIDE.md
-│   └── WINDOWS_SETUP.md
+│   ├── WINDOWS_SETUP.md
+│   └── PACKAGE_STRUCTURE.md
 ├── tests/
 │   ├── fixtures/README.md          # 합성 캡처 생성·확장 방법
 │   └── make_examples.py            # 패킷 생성 + TShark 통합 검증
@@ -32,8 +34,9 @@ Wireshark가 정한 유일한 레포지토리 구조는 없다. **플러그인 �
 [공식 로딩 규칙](https://www.wireshark.org/docs/wsdg_html_chunked/wsluarm.html),
 [공식 모듈 예제](https://www.wireshark.org/docs/wsdg_html_chunked/wslua_require_example.html).
 
-현재 구현은 작은 단일 모듈로 유지한다. 실제 vendor 메시지가 늘면 `fields.lua`, `reader.lua`,
-`commands.lua`, `events.lua`, `structs.lua`로 책임에 따라 분리할 수 있다.
+현재 구현은 여러 기법을 모은 단일 학습 모듈이다. 실제 vendor 구현에서는 공통 필드·reader·HCI 처리와
+Command/Event/Command Complete 본문 파서를 분리하는 구성을 권장한다.
+[패키지 구성 가이드](docs/PACKAGE_STRUCTURE.md)에 Samsung을 가정한 파일 배치와 새 메시지 추가 예를 정리했다.
 필드·프로토콜 등록은 패킷 콜백 밖에서 한 번 수행하고, 순서가 필요한 모듈은 명시적으로 로드한다.
 
 ## 요구 환경

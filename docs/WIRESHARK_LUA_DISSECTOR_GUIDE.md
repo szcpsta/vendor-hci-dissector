@@ -26,6 +26,7 @@ Windows 개발자를 위한 PowerShell 명령·설치·폴더 연결·재로드 
 
 환경별 실행: [Windows/PowerShell](WINDOWS_SETUP.md), [macOS 및 공통 로딩 흐름](#2-예제를-직접-실행하기).
 이름 설계 예: [Samsung 프로토콜·필드 이름](#59-samsung-vendor의-이름을-정한다면).
+코드 구성: [공통 처리와 개별 디코더를 분리하는 패키지 구성](PACKAGE_STRUCTURE.md).
 
 완성된 실행 코드는 [bkv_tutorial.lua](../vendor_hci/bkv_tutorial.lua)에 있다.
 [make_examples.py](../tests/make_examples.py)는 합성 btsnoop 파일을 만들고
@@ -1391,8 +1392,10 @@ callback과 visited의 상세 설명은 [Pinfo API](https://www.wireshark.org/do
 8. **사용 방법을 함께 배포한다.** Lua package, 지원 Wireshark/Lua 버전, Decode As 또는 자동 등록 방법,
    fixtures와 검증 명령을 묶는다.
 
-규모가 커지면 `init.lua / fields.lua / reader.lua / commands.lua / events.lua / structs.lua` 정도로
-나눌 수 있다. `init.lua`에서 fields와 helper를 먼저 로드하고 마지막에 dissector를 등록한다.
+실제 구현에서는 공통 필드·reader·HCI 처리와 Command/Event/Command Complete 본문을 분리하는 편이 좋다.
+[패키지 구성 가이드](PACKAGE_STRUCTURE.md)에 `init.lua → samsung.dissector` 진입 구조,
+각 모듈의 책임, 간단한 Event 파서, 규모가 커질 때의 분리 기준을 정리했다.
+필드와 helper를 먼저 로드하고 마지막에 dissector를 등록한다.
 route table과 field 선언은 코드 생성에도 적합하지만, 처음부터 SG 규모의 generator를 만들 필요는 없다.
 수동 구현으로 wire와 출력 계약을 확정한 다음 반복되는 정의만 생성하면 적절한 범위를 판단하기 쉽다.
 
