@@ -769,6 +769,39 @@ Proto 이름을 바꾸면 Decode As 인수도 `bthci_cmd.vendor=bthci_vendor.sam
 
 명명 방식의 기존 예는 [Broadcom HCI 필드 레퍼런스](https://www.wireshark.org/docs/dfref/b/bthci_vendor.broadcom.html)를 참고한다.
 
+#### Broadcom을 참고한 부분과 이 가이드의 설계 제안
+
+`bthci_vendor.<vendor>`, `.connection_handle`, `.bd_addr`라는 이름과 vendor별 필드 등록은
+Broadcom의 실제 구현을 참고했다. 반면 레포·패키지 폴더 이름, 역할별 주소 필드 구성,
+동일 의미의 handle을 모든 vendor 메시지에서 공통 정의로 쓰자는 정책은 이 가이드의 제안이다.
+
+Wireshark 4.4.8의 Broadcom 구현은 `packet-bthci_vendor.c`에 있다.
+`hf_broadcom_connection_handle`을 `bthci_vendor.broadcom.connection_handle`로 등록하고,
+Set ACL Priority Command에서 이 필드를 추가한다. 이 값에 `bthci_evt.connection_handle`이나
+`bthci_cmd.connection_handle`을 재사용하거나 별도 alias로 추가하지 않는다.
+주소도 자체 이름인 `bthci_vendor.broadcom.bd_addr`를 사용한다.
+[4.4.8 vendor 구현 소스](https://github.com/wireshark/wireshark/blob/wireshark-4.4.8/epan/dissectors/packet-bthci_vendor.c).
+
+따라서 표준 HCI와 이 Broadcom handle을 함께 검색하려면 사용자가 다음처럼 조합한다.
+dissector가 공통 필터식을 자동으로 만들어 주는 것은 아니다.
+
+```text
+bthci_cmd.connection_handle == 0x0042 ||
+bthci_evt.connection_handle == 0x0042 ||
+bthci_vendor.broadcom.connection_handle == 0x0042
+```
+
+4.4.8에서 handle이 모두 0x0042인 Disconnect Command, Disconnection Complete Event,
+Broadcom Set ACL Priority Command의 합성 3개 frame으로 확인했다.
+각 필드는 해당 frame 하나만 검색했고, 위 OR 식은 세 frame을 모두 검색했다.
+ACL/SCO/ISO 패킷까지 포함하려면 앞서 설명한 `.chandle` 필드도 식에 추가한다.
+
+Broadcom도 모든 메시지의 handle을 하나로 통일한 것은 아니다. 확인한 로컬 master에는
+`bthci_vendor.broadcom.a2dp_hardware_offload.start.connection_handle` 등 메시지별 정의가 있고,
+해당 파서는 그 별도 필드를 추가한다. 이 값이 `.broadcom.connection_handle`에 자동 포함되지는 않는다.
+[master Broadcom 구현 소스](https://github.com/wireshark/wireshark/blob/master/epan/dissectors/packet-bthci_vendor_broadcom.c).
+따라서 이 가이드의 Samsung 공통 handle 정책을 Broadcom 전체 구현과 동일한 규칙으로 이해하지 않는다.
+
 ## 6. 레이아웃별 예제
 
 이 절의 `c`는 완성 파일의 작은 cursor다.
@@ -1394,6 +1427,8 @@ fragment나 요청·응답 상태가 없는 메시지는 패킷별 parser만으�
 |---|---|---|
 | [4.4.8 HCI Command](https://github.com/wireshark/wireshark/blob/wireshark-4.4.8/epan/dissectors/packet-bthci_cmd.c) | `https://github.com/wireshark/wireshark/blob/wireshark-4.4.8/epan/dissectors/packet-bthci_cmd.c` | 설치 버전의 vendor hook과 등록 |
 | [4.4.8 HCI Event](https://github.com/wireshark/wireshark/blob/wireshark-4.4.8/epan/dissectors/packet-bthci_evt.c) | `https://github.com/wireshark/wireshark/blob/wireshark-4.4.8/epan/dissectors/packet-bthci_evt.c` | 설치 버전의 CC/CS/vendor event 호출 경로 |
+| [4.4.8 vendor 구현](https://github.com/wireshark/wireshark/blob/wireshark-4.4.8/epan/dissectors/packet-bthci_vendor.c) | `https://github.com/wireshark/wireshark/blob/wireshark-4.4.8/epan/dissectors/packet-bthci_vendor.c` | Broadcom의 자체 handle·주소 필드 등록과 사용 |
+| [master Broadcom 구현](https://github.com/wireshark/wireshark/blob/master/epan/dissectors/packet-bthci_vendor_broadcom.c) | `https://github.com/wireshark/wireshark/blob/master/epan/dissectors/packet-bthci_vendor_broadcom.c` | 공통 필드와 메시지별 A2DP handle 필드 |
 | [master HCI Command](https://github.com/wireshark/wireshark/blob/master/epan/dissectors/packet-bthci_cmd.c) | `https://github.com/wireshark/wireshark/blob/master/epan/dissectors/packet-bthci_cmd.c` | 로컬 소스와 대조할 Command 구현 |
 | [master HCI Event](https://github.com/wireshark/wireshark/blob/master/epan/dissectors/packet-bthci_evt.c) | `https://github.com/wireshark/wireshark/blob/master/epan/dissectors/packet-bthci_evt.c` | 로컬 소스와 대조할 Event 구현 |
 | [master Lua Tvb](https://github.com/wireshark/wireshark/blob/master/epan/wslua/wslua_tvb.c) | `https://github.com/wireshark/wireshark/blob/master/epan/wslua/wslua_tvb.c` | `push_TvbRange`, 범위 검사와 Lua 오류 |
