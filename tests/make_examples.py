@@ -89,7 +89,8 @@ def main():
     script = Path(__file__).resolve().parents[1] / "vendor_hci" / "init.lua"
     fields = sorted({key for e in expectations for key in e} | {"malformed", "truncated", "unknown"})
     command = [str(Path(args.check).resolve()) if Path(args.check).is_file() else args.check,
-               "-n", "-d", "bthci_cmd.vendor=bthci_vendor.samsung"]
+               "-n", "-d", "bthci_cmd.vendor=bthci_vendor.samsung",
+               "-o", "bthci_vendor.samsung.enable_tutorial:TRUE"]
     script_args = ["-X", f"lua_script:{script}"]
 
     def read(path, two_pass=False, load_args=None, env=None, cwd=None):
@@ -97,7 +98,7 @@ def main():
         cmd += (["-2"] if two_pass else []) + ["-r", str(path.resolve()), "-T", "fields", "-E", "occurrence=a"]
         for field in ["frame.number"] + ["bthci_vendor.samsung." + f for f in fields] + ["_ws.lua.error"]:
             cmd += ["-e", field]
-        result = subprocess.run(cmd, text=True, capture_output=True, check=True, env=env, cwd=cwd)
+        result = subprocess.run(cmd, text=True, encoding="utf-8", capture_output=True, check=True, env=env, cwd=cwd)
         if "Lua" in result.stderr:
             raise AssertionError(result.stderr)
         return list(csv.reader(io.StringIO(result.stdout), delimiter="\t"))

@@ -1,15 +1,18 @@
 -- Wireshark entry: registration, HCI envelope, dispatch, and final diagnostics.
--- Tested with Wireshark 4.4.8 / Lua 5.4.6. The payload layouts are teaching examples, not an actual Samsung specification.
+-- Tested with Wireshark 4.4.8 / Lua 5.4.6. See docs/SAMSUNG_MIGRATION.md for provenance.
 local p = Proto("bthci_vendor.samsung", "Samsung HCI Vendor")
 local definitions = require("samsung_fields")
 local reader = require("samsung_reader")
 local commands = require("samsung_commands")
 local events = require("samsung_events")
 local command_complete = require("samsung_command_complete")
+local tutorial = require("samsung_tutorial")
 local f = definitions.fields
 
 p.fields = f
 p.experts = definitions.experts
+p.prefs.enable_tutorial = Pref.bool("Enable synthetic tutorial layouts", false,
+    "Decode fictional SampleVendorContract and E0 tutorial packets. Leave disabled for Samsung captures.")
 
 -- Native HCI fields identify the caller; vendor fields keep their own names.
 local event_code = Field.new("bthci_evt.code")
@@ -39,9 +42,11 @@ function p.dissector(tvb, pinfo, tree)
         if ev and code == 0xFF then
             local route = c:u(f.subevent_code, 1, "Vendor Subevent")
             local decode = events[route]
+            if not decode and p.prefs.enable_tutorial then decode = tutorial.events[route] end
             if decode then decode(c) else c:unknown("Unknown vendor subevent") end
         elseif not ev then
             local decode = commands[opcode]
+            if not decode and p.prefs.enable_tutorial then decode = tutorial.commands[opcode] end
             if decode then decode(c) else c:unknown("Unknown vendor command") end
         elseif code == 0x0E then
             c:take(1, "Num HCI Command Packets")

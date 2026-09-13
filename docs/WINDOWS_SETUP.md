@@ -25,7 +25,7 @@ $repoRoot = 'C:\src\vendor-hci-dissector'
 $tsharkExe = Join-Path $env:ProgramFiles 'Wireshark\tshark.exe'
 $wiresharkExe = Join-Path $env:ProgramFiles 'Wireshark\Wireshark.exe'
 $luaEntry = Join-Path $repoRoot 'vendor_hci\init.lua'
-$capturePath = Join-Path $env:TEMP 'vendor-hci-examples.btsnoop'
+$capturePath = Join-Path $env:TEMP 'samsung-bt-status.btsnoop'
 Set-Location -LiteralPath $repoRoot
 
 & $tsharkExe --version
@@ -41,11 +41,12 @@ PowerShell에서는 실행 파일 경로를 변수나 따옴표 문자열로 지
 합성 btsnoop을 만들고 실제 TShark로 검사한다.
 
 ```powershell
-py -3 tests\make_examples.py $capturePath --check $tsharkExe
+py -3 tests\check_samsung.py $capturePath --check $tsharkExe
 if ($LASTEXITCODE -ne 0) { throw 'Dissector verification failed.' }
 ```
 
-현재 기대 결과는 28개 값·진단 검사, 일반 분석과 두 번 분석의 일치, 208개 잘림 위치 검사다.
+현재 기대 결과는 Samsung 23개 값·진단 검사, 필터와 byte range 검사, 일반/두 번 분석의 일치,
+학습 옵션 격리와 367개 잘림 위치 검사다.
 임시 plugin 폴더에 패키지를 복사해 `-X` 없이 자동 로드하는 검사도 포함한다.
 이 검사는 `WIRESHARK_PLUGIN_DIR`을 해당 TShark 프로세스에만 지정하며 실제 설치 폴더를 수정하지 않는다.
 `--check` 없이 실행하면 합성 파일만 만든다.
@@ -71,7 +72,22 @@ GUI로 같은 파일을 여는 명령은 다음과 같다.
 
 현재 패키지의 프로토콜 이름은 `bthci_vendor.samsung`이고, Decode As 테이블은 `bthci_cmd.vendor`다.
 이 테이블은 HCI Command와 Event가 공유하며, FT_NONE이므로 `bthci_cmd.vendor=bthci_vendor.samsung` 문법을 쓴다.
-현재 실행 예제에도 Samsung 이름을 적용했다. payload layout은 계속 학습용이다.
+기본으로 `0xFF → 0x63 → Tag 0x0000`의 FW Build ID를 해석한다.
+[이관 근거와 필드 목록](SAMSUNG_MIGRATION.md)은 BluetoothKit `999c164`에 기반한다.
+검증용 문자열은 합성 값이며 실제 장비 캡처는 아니다.
+
+### 가상 학습 예제 실행
+
+기존 배열·조건·주소 예제는 별도 옵션이 필요하다. 검증 스크립트는 이를 자동으로 켠다.
+
+```powershell
+$tutorialPath = Join-Path $env:TEMP 'vendor-hci-examples.btsnoop'
+py -3 tests\make_examples.py $tutorialPath --check $tsharkExe
+& $tsharkExe '-n' '-r' $tutorialPath '-X' "lua_script:$luaEntry" '-d' 'bthci_cmd.vendor=bthci_vendor.samsung' '-o' 'bthci_vendor.samsung.enable_tutorial:TRUE' '-V'
+```
+
+GUI에서는 Preferences → Protocols → Samsung HCI Vendor의
+**Enable synthetic tutorial layouts**를 켠다. 실제 Samsung 캡처에서는 끈다.
 
 ## 3. 플러그인 폴더 확인
 
@@ -140,6 +156,8 @@ Windows의 symbolic link도 가능하지만 Developer Mode나 권한 조건이 �
     ├── samsung_reader.lua
     ├── samsung_commands.lua
     ├── samsung_events.lua
+    ├── samsung_events_bt_status.lua
+    ├── samsung_tutorial.lua
     └── samsung_command_complete.lua
 ```
 
@@ -170,15 +188,15 @@ GUI에서는 Wireshark를 다시 시작하고 Analyze → Decode As…에서 `BT
 아래는 **설치 없이 `-X`를 사용하는 방식**이다. 설치/연결했다면 `-X`와 그 다음 인수를 뺀다.
 
 ```powershell
-& $tsharkExe -G protocols | Select-String 'bthci_vendor'
-& $tsharkExe -G fields -X "lua_script:$luaEntry" | Select-String 'bthci_vendor\.samsung\.(bd_addr|connection_handle)'
+& $tsharkExe -G protocols -X "lua_script:$luaEntry" | Select-String 'bthci_vendor'
+& $tsharkExe -G fields -X "lua_script:$luaEntry" | Select-String 'bthci_vendor\.samsung\.(bt_status|bd_addr|connection_handle)'
 
 $filterArgs = @(
     '-n', '-r', $capturePath,
     '-X', "lua_script:$luaEntry",
     '-d', 'bthci_cmd.vendor=bthci_vendor.samsung',
-    '-Y', 'bthci_vendor.samsung.bd_addr == aa:bb:cc:dd:ee:ff',
-    '-T', 'fields', '-e', 'frame.number', '-e', 'bthci_vendor.samsung.bd_addr'
+    '-Y', 'bthci_vendor.samsung.bt_status.tag == 0x0000',
+    '-T', 'fields', '-e', 'frame.number', '-e', 'bthci_vendor.samsung.bt_status.fw_build_id'
 )
 & $tsharkExe @filterArgs
 ```
@@ -197,7 +215,7 @@ PowerShell 문자열 안의 display filter는 한 인수로 전달한다. `-Y`�
 | 프로토콜 중복 등록 오류 | 설치된 패키지와 `-X`의 중복, 다른 폴더의 이전 복사본 |
 | 수정한 코드가 반영되지 않음 | 작업 파일과 복사본의 경로, junction Target, Lua 재로드 여부 |
 | 필드 필터가 유효하지 않음 | plugin이 로드됐는지, 실제 abbreviation과 대소문자가 맞는지 |
-| 필터 결과가 없음 | Decode As 선택, 캡처에 해당 필드가 실제 추가됐는지, 주소 순서·handle 값 |
+| 필터 결과가 없음 | Decode As 선택, 캡처에 해당 필드가 실제 추가됐는지 확인. 가상 학습 캡처는 학습 옵션도 확인 |
 | `py` 명령을 찾지 못함 | Python 3 설치 또는 사용 가능한 `python` 명령 확인 |
 
 오류 상세는 TShark 표준 오류와 `-V` 출력, GUI의 Expert Info에서 확인한다.

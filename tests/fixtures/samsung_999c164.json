@@ -1,0 +1,242 @@
+{
+  "source_commit": "999c164ab30f2f0fbb15cfe2f5f9a85e38b1bc81",
+  "generator": "Original SamsungVendorDecoder + HciDecoderGenerator built with .NET SDK 9.0.202; see docs/SAMSUNG_MIGRATION.md.",
+  "cases": [
+    {
+      "label": "FW Build ID",
+      "packet": "04ff116300000d46572d323032362e30362e3131",
+      "type": "FwBuildIdEvent",
+      "name": "FW Build Id",
+      "fields": {
+        "Event Code": "0xFF",
+        "Subevent Code": "0x63",
+        "Tag": "0x0000",
+        "Length": "13",
+        "FW Build ID": "FW-2026.06.11"
+      }
+    },
+    {
+      "label": "UTF-8 byte count",
+      "packet": "04ff0d63000009ec82bcec84b12d4657",
+      "type": "FwBuildIdEvent",
+      "name": "FW Build Id",
+      "fields": {
+        "Event Code": "0xFF",
+        "Subevent Code": "0x63",
+        "Tag": "0x0000",
+        "Length": "9",
+        "FW Build ID": "삼성-FW"
+      }
+    },
+    {
+      "label": "Empty FW Build ID",
+      "packet": "04ff0463000000",
+      "type": "FwBuildIdEvent",
+      "name": "FW Build Id",
+      "fields": {
+        "Event Code": "0xFF",
+        "Subevent Code": "0x63",
+        "Tag": "0x0000",
+        "Length": "0",
+        "FW Build ID": ""
+      }
+    },
+    {
+      "label": "Maximum HCI parameter length",
+      "packet": "04ffff630000fb4141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141",
+      "type": "FwBuildIdEvent",
+      "name": "FW Build Id",
+      "fields": {
+        "Event Code": "0xFF",
+        "Subevent Code": "0x63",
+        "Tag": "0x0000",
+        "Length": "251",
+        "FW Build ID": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    },
+    {
+      "label": "Original unknown BT Status tag",
+      "packet": "04ff05633412aabb",
+      "type": "HciSamsungUnknownEventDecoded",
+      "name": "BT Status Hci Event",
+      "fields": {
+        "Event Code": "0xFF",
+        "Subevent Code": "0x63",
+        "Tag": "0x1234",
+        "Data": "AABB"
+      }
+    },
+    {
+      "label": "Original unknown event",
+      "packet": "04ff0310aabb",
+      "type": "HciSamsungUnknownEventDecoded",
+      "name": "Samsung Event 0x10",
+      "fields": {
+        "Event Code": "0xFF",
+        "Subevent Code": "0x10",
+        "Data": "AABB"
+      }
+    },
+    {
+      "label": "Original unknown command",
+      "packet": "0101fc02aabb",
+      "type": "HciSamsungUnknownCommandDecoded",
+      "name": "Samsung Command 0x0001 (opcode 0xFC01)",
+      "fields": {
+        "Command Opcode": "0xFC01",
+        "Data": "AABB"
+      }
+    },
+    {
+      "label": "Original unknown Command Complete",
+      "packet": "040e050101fc00aa",
+      "type": "HciSamsungUnknownCommandCompleteDecoded",
+      "name": "Command Complete (Samsung Command 0x0001 [opcode 0xFC01])",
+      "fields": {
+        "Event Code": "0x0E",
+        "Number of Allowed Command Packets": "1",
+        "Command Opcode": "0xFC01",
+        "Data": "00AA"
+      }
+    },
+    {
+      "label": "Unknown tag with no body",
+      "packet": "04ff03630100",
+      "type": "HciSamsungUnknownEventDecoded",
+      "name": "BT Status Hci Event",
+      "fields": {
+        "Event Code": "0xFF",
+        "Subevent Code": "0x63",
+        "Tag": "0x0001"
+      }
+    },
+    {
+      "label": "Tutorial command disabled",
+      "packet": "0101fc0142",
+      "type": "HciSamsungUnknownCommandDecoded",
+      "name": "Samsung Command 0x0001 (opcode 0xFC01)",
+      "fields": {
+        "Command Opcode": "0xFC01",
+        "Data": "42"
+      }
+    },
+    {
+      "label": "Tutorial B0 disabled",
+      "packet": "04ff02b043",
+      "type": "HciSamsungUnknownEventDecoded",
+      "name": "Samsung Event 0xB0",
+      "fields": {
+        "Event Code": "0xFF",
+        "Subevent Code": "0xB0",
+        "Data": "43"
+      }
+    },
+    {
+      "label": "Tutorial A0 disabled",
+      "packet": "04ff04a0010044",
+      "type": "HciSamsungUnknownEventDecoded",
+      "name": "Samsung Event 0xA0",
+      "fields": {
+        "Event Code": "0xFF",
+        "Subevent Code": "0xA0",
+        "Data": "010044"
+      }
+    },
+    {
+      "label": "Tutorial E0 disabled",
+      "packet": "04ff07e00303aabbccd6",
+      "type": "HciSamsungUnknownEventDecoded",
+      "name": "Samsung Event 0xE0",
+      "fields": {
+        "Event Code": "0xFF",
+        "Subevent Code": "0xE0",
+        "Data": "0303AABBCCD6"
+      }
+    },
+    {
+      "label": "Missing tag",
+      "packet": "04ff0163",
+      "type": "HciInvalidDecoded",
+      "name": "BT Status Hci Event",
+      "fields": {}
+    },
+    {
+      "label": "Incomplete tag",
+      "packet": "04ff026300",
+      "type": "HciInvalidDecoded",
+      "name": "BT Status Hci Event",
+      "fields": {
+        "Data": "00"
+      }
+    },
+    {
+      "label": "Missing length",
+      "packet": "04ff03630000",
+      "type": "HciInvalidDecoded",
+      "name": "FW Build Id",
+      "fields": {}
+    },
+    {
+      "label": "Length exceeds body",
+      "packet": "04ff06630000034142",
+      "type": "HciInvalidDecoded",
+      "name": "FW Build Id",
+      "fields": {
+        "Data": "4142"
+      }
+    },
+    {
+      "label": "Trailing byte",
+      "packet": "04ff06630000014142",
+      "type": "HciInvalidDecoded",
+      "name": "FW Build Id",
+      "fields": {
+        "Data": "42"
+      }
+    },
+    {
+      "label": "Trailing byte after empty string",
+      "packet": "04ff056300000041",
+      "type": "HciInvalidDecoded",
+      "name": "FW Build Id",
+      "fields": {
+        "Data": "41"
+      }
+    },
+    {
+      "label": "Length 252 cannot fit HCI parameters",
+      "packet": "04ffff630000fc4141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141",
+      "type": "HciInvalidDecoded",
+      "name": "FW Build Id",
+      "fields": {
+        "Data": "4141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141"
+      }
+    },
+    {
+      "label": "Invalid UTF-8 uses replacement",
+      "packet": "04ff076300000341ff42",
+      "type": "FwBuildIdEvent",
+      "name": "FW Build Id",
+      "fields": {
+        "Event Code": "0xFF",
+        "Subevent Code": "0x63",
+        "Tag": "0x0000",
+        "Length": "3",
+        "FW Build ID": "A�B"
+      }
+    },
+    {
+      "label": "Embedded NUL preserves wire bytes",
+      "packet": "04ff0763000003410042",
+      "type": "FwBuildIdEvent",
+      "name": "FW Build Id",
+      "fields": {
+        "Event Code": "0xFF",
+        "Subevent Code": "0x63",
+        "Tag": "0x0000",
+        "Length": "3",
+        "FW Build ID": "A\u0000B"
+      }
+    }
+  ]
+}

@@ -1,8 +1,9 @@
 # SG 기반 vendor decoder를 Wireshark Lua dissector로 옮기기
 
 이 가이드는 현재 BluetoothKit의 Source Generator(SG), 공개된 SampleVendorContract,
-로컬 Wireshark 소스를 바탕으로 작성했다. 접근할 수 없는 기존 vendor decoder의 실제
-레이아웃을 추정하지 않는다. **SG의 필드 읽기 규칙은 Lua 함수로, 출력 정의는
+로컬 Wireshark 소스를 바탕으로 작성했다. 이후 BluetoothKit `999c164`의 Samsung
+BT Status / FW Build ID를 실제로 이관했다. [이관 문서](SAMSUNG_MIGRATION.md)에
+wire 구조·SG 대응·필드·검증·원본 전체 URL을 정리했다. 확인되지 않은 다른 vendor 레이아웃은 추정하지 않는다. **SG의 필드 읽기 규칙은 Lua 함수로, 출력 정의는
 `ProtoField`로, vendor dispatch는 Lua 함수 테이블로 옮기는 방식**을 설명한다.
 
 확인 환경은 설치된 **Wireshark/TShark 4.4.8, Lua 5.4.6**이다.
@@ -29,7 +30,8 @@ Windows 개발자를 위한 PowerShell 명령·설치·폴더 연결·재로드 
 코드 구성: [공통 처리와 개별 디코더를 분리하는 패키지 구성](PACKAGE_STRUCTURE.md).
 
 완성된 실행 코드는 [samsung_dissector.lua](../vendor_hci/samsung_dissector.lua),
-[samsung_commands.lua](../vendor_hci/samsung_commands.lua), [samsung_events.lua](../vendor_hci/samsung_events.lua) 등으로 분리했다.
+[samsung_events.lua](../vendor_hci/samsung_events.lua), [samsung_events_bt_status.lua](../vendor_hci/samsung_events_bt_status.lua),
+[samsung_tutorial.lua](../vendor_hci/samsung_tutorial.lua) 등으로 분리했다.
 [make_examples.py](../tests/make_examples.py)는 합성 btsnoop 파일을 만들고
 선택적으로 TShark로 검사한다. Python 표준 라이브러리만 사용한다.
 
@@ -38,10 +40,17 @@ Windows 개발자를 위한 PowerShell 명령·설치·폴더 연결·재로드 
 [samsung_reader.lua](../vendor_hci/samsung_reader.lua)에 있다. 기존 `bkv_tutorial.lua`의 구현을 이 모듈들로 옮겼다.
 명령과 상대 경로는 이 레포지토리에 맞췄으며, BluetoothKit의 SG 소스는 revision을 고정한 외부 링크로 참조한다.
 
-`0xFC01`, `0xB0`, `0xA0:0x0001`은 프로젝트 SampleVendorContract를 따른다.
+기본 설정에서 실제로 해석하는 경로는 `Event 0xFF → Subevent 0x63 → Tag 0x0000`이다.
+이관 패킷 검증은 [check_samsung.py](../tests/check_samsung.py)를 사용한다.
+
+아래 일반 작성 예제의 `0xFC01`, `0xB0`, `0xA0:0x0001`은 프로젝트 SampleVendorContract를 따른다.
 **`0xE0` 아래의 메시지와 status/action/TLV enum은 설명용 가상 프로토콜**이다.
 CS step은 현재 SG의 entry 레이아웃을 재사용하지만, 예제의 HCI envelope는 가상 vendor event다.
 실제 LE CS event 전체나 특정 회사의 프로토콜 구현으로 사용하면 안 된다.
+이 학습 경로는 `samsung_tutorial.lua`로 분리했으며 **기본 비활성**이다.
+이 문서의 학습 캡처 실행에는 `-o bthci_vendor.samsung.enable_tutorial:TRUE`를 추가한다.
+`make_examples.py --check`는 이를 자동으로 켠다. 실제 캡처에서는 끄며, Samsung 이관 패킷의
+기본 실행 명령은 [README](../README.md#빠른-실행)와 [Windows 가이드](WINDOWS_SETUP.md)에 있다.
 
 ## 1. 기본 개념
 
@@ -147,7 +156,7 @@ $tsharkExe = Join-Path $env:ProgramFiles 'Wireshark\tshark.exe'
 $luaEntry = (Resolve-Path .\vendor_hci\init.lua).Path
 $capturePath = Join-Path $env:TEMP 'vendor-hci-examples.btsnoop'
 py -3 tests\make_examples.py $capturePath --check $tsharkExe
-& $tsharkExe '-n' '-r' $capturePath '-X' "lua_script:$luaEntry" '-d' 'bthci_cmd.vendor=bthci_vendor.samsung' '-V'
+& $tsharkExe '-n' '-r' $capturePath '-X' "lua_script:$luaEntry" '-d' 'bthci_cmd.vendor=bthci_vendor.samsung' '-o' 'bthci_vendor.samsung.enable_tutorial:TRUE' '-V'
 ```
 
 Personal Lua Plugins는 보통 `%APPDATA%\Wireshark\plugins`이며 `& $tsharkExe -G folders`로 확인한다.
@@ -168,6 +177,7 @@ python3 tests/make_examples.py /tmp/vendor-hci-examples.btsnoop \
   -n -r /tmp/vendor-hci-examples.btsnoop \
   -X lua_script:vendor_hci/init.lua \
   -d bthci_cmd.vendor=bthci_vendor.samsung \
+  -o bthci_vendor.samsung.enable_tutorial:TRUE \
   -V
 ```
 
@@ -180,7 +190,8 @@ GUI로 실행하려면 다음처럼 스크립트와 Decode As를 함께 지정�
 /Applications/Wireshark.app/Contents/MacOS/Wireshark \
   -r /tmp/vendor-hci-examples.btsnoop \
   -X lua_script:vendor_hci/init.lua \
-  -d bthci_cmd.vendor=bthci_vendor.samsung
+  -d bthci_cmd.vendor=bthci_vendor.samsung \
+  -o bthci_vendor.samsung.enable_tutorial:TRUE
 ```
 
 수동으로는 패킷 선택 → Analyze → Decode As…에서 `BT HCI Vendor` 테이블의
@@ -761,8 +772,9 @@ native handle 식은 1·2·5, vendor handle 식은 3, 두 종류를 포함한 OR
 
 현재 코드는 **`bthci_vendor.samsung`을 프로토콜과 공통 필터 접두사로 사용한다.**
 기본 dissector의 `bthci_vendor.broadcom`, `bthci_vendor.intel`과 같은 형식이다.
-이는 이 프로젝트의 이름이며 Wireshark의 공식 Samsung dissector나 실제 Samsung wire 명세 구현을 뜻하지 않는다.
-프로토콜·필드 등록과 학습 예제 해석은 4.4.8에서 확인했다.
+이는 이 프로젝트의 이름이며 Wireshark의 공식 Samsung dissector를 뜻하지 않는다.
+현재 실제 지원 범위는 BluetoothKit `999c164`에 정의된 FW Build ID이며, 가상 학습 예제는 별도 옵션이다.
+프로토콜·필드 등록과 실제 이관·학습 예제 해석을 4.4.8에서 확인했다.
 실제 배포 대상 버전과 다른 plugin에 같은 프로토콜이 등록되어 있는지도 확인한다.
 
 | 대상 | 현재 이름 | 역할 |
@@ -819,8 +831,9 @@ Samsung namespace의 등록만으로 native 필드와 합쳐지는 것은 아니
 Samsung packet 본문에 peer address가 있다고 `bluetooth.addr`의 endpoint 의미로 자동 변환하지 않는다.
 
 Decode As 인수는 `bthci_cmd.vendor=bthci_vendor.samsung`이다.
-**이름과 모듈을 Samsung 기준으로 정리했으며, payload layout은 기존 학습 예제를 유지한다.**
-실제 Samsung vendor decoder 이관은 해당 명세와 패킷을 확보한 뒤 진행한다.
+**Samsung BT Status / FW Build ID를 실제로 이관했다.**
+기존 학습 예제는 `samsung_tutorial.lua`로 분리했고 학습 옵션을 켤 때만 해석한다.
+실제 지원 경로·필드·원본 URL은 [Samsung 이관 문서](SAMSUNG_MIGRATION.md)에 있다.
 
 명명 방식의 기존 예는 [Broadcom HCI 필드 레퍼런스](https://www.wireshark.org/docs/dfref/b/bthci_vendor.broadcom.html)를 참고한다.
 
@@ -872,7 +885,8 @@ local reader = require("samsung_reader")
 local cursor, bd_addr, rssi, entry = reader.new, reader.bd_addr, reader.rssi, reader.entry
 ```
 
-실제 ID별 함수 매핑과 이름 있는 본문 파서는 [samsung_events.lua](../vendor_hci/samsung_events.lua)에 있다.
+이 절의 가상 ID별 함수 매핑과 본문 파서는 [samsung_tutorial.lua](../vendor_hci/samsung_tutorial.lua)에 있다.
+실제 이관한 길이 기반 문자열 파서는 [samsung_events_bt_status.lua](../vendor_hci/samsung_events_bt_status.lua)에서 볼 수 있다.
 
 ### 6.1 필드 값에 따른 decoder 분기: tagged union
 
@@ -1308,7 +1322,8 @@ TShark로 값만 출력:
 /Applications/Wireshark.app/Contents/MacOS/tshark \
   -n -r /tmp/vendor-hci-examples.btsnoop \
   -X lua_script:vendor_hci/init.lua \
-  -d bthci_cmd.vendor=bthci_vendor.samsung -Y bthci_vendor.samsung \
+  -d bthci_cmd.vendor=bthci_vendor.samsung \
+  -o bthci_vendor.samsung.enable_tutorial:TRUE -Y bthci_vendor.samsung \
   -T fields -E header=y -E occurrence=a \
   -e frame.number -e bthci_vendor.samsung.bd_addr -e bthci_vendor.samsung.rssi \
   -e bthci_vendor.samsung.step.mode -e bthci_vendor.samsung.step.data -e bthci_vendor.samsung.malformed
@@ -1364,7 +1379,7 @@ callback과 visited의 상세 설명은 [Pinfo API](https://www.wireshark.org/do
 
 ### 검증 결과와 예제 목록
 
-`make_examples.py --check ...`로 다음을 확인했다.
+`make_examples.py --check ...`는 학습 옵션을 켜고 다음을 확인한다.
 
 - **28 frame**의 기대 필드 값과 unknown/malformed/truncated 분류.
 - 일반 읽기와 `tshark -2`의 필드 출력 일치.
@@ -1387,8 +1402,10 @@ callback과 visited의 상세 설명은 [Pinfo API](https://www.wireshark.org/do
 | 20–27 | unknown route, 짧은 필드, 여분 bytes, 길이 모순, 의미상 모순 |
 | 28 | reported > captured인 캡처 잘림 |
 
-합성 입력에 대한 검증이며, 접근할 수 없는 vendor 구현과의 호환성은 아직 확인하지 못했다.
-실제 wire spec에서 만든 golden packet으로 예제를 교체하고 추가한다.
+별도로 `check_samsung.py --check ...`는 `999c164`의 실제 FW Build ID 계약과 원본 unknown 테스트를 검증한다.
+23개 값·진단 case, 367개 캡처 잘림 위치, 숫자·문자열 필터, 필드 byte range,
+재분석·학습 옵션 격리·폴더 자동 로드를 확인했다. [이관 및 검증 문서](SAMSUNG_MIGRATION.md)를 참고한다.
+패킷은 합성 입력이므로 실제 장비 로그에서도 진입 경로와 결과를 확인해야 한다.
 
 ### 기존 vendor decoder를 확보한 뒤의 순서
 
@@ -1532,3 +1549,27 @@ BluetoothKit SG와 모델은 아래 revision 고정 링크로 참조한다. 해�
 [공식 shared modules 예제](https://www.wireshark.org/docs/wsdg_html_chunked/wslua_require_example.html)를 참고한다.
 
 전체 URL: `https://www.wireshark.org/docs/wsdg_html_chunked/wslua_require_example.html`
+
+### 실제 Samsung 디코더 이관 원본
+
+
+코드 링크는 모두 실제로 읽은 revision에 고정했다. 원본 레포 접근 권한이 필요할 수 있다.
+
+| 자료 | 전체 URL |
+|---|---|
+| 이관 기준 커밋 | `https://github.com/szcpsta/BluetoothKit/commit/999c164ab30f2f0fbb15cfe2f5f9a85e38b1bc81` |
+| vendor 진입점 | `https://github.com/szcpsta/BluetoothKit/blob/999c164ab30f2f0fbb15cfe2f5f9a85e38b1bc81/src/BluetoothKit.Hci.Vendor.Samsung/SamsungVendorDecoder.cs` |
+| subevent 분기 | `https://github.com/szcpsta/BluetoothKit/blob/999c164ab30f2f0fbb15cfe2f5f9a85e38b1bc81/src/BluetoothKit.Hci.Vendor.Samsung/Events/SamsungEventDispatch.cs` |
+| Tag 분기 | `https://github.com/szcpsta/BluetoothKit/blob/999c164ab30f2f0fbb15cfe2f5f9a85e38b1bc81/src/BluetoothKit.Hci.Vendor.Samsung/Events/BtStatus/BtStatusDispatch.cs` |
+| FW Build ID 선언 | `https://github.com/szcpsta/BluetoothKit/blob/999c164ab30f2f0fbb15cfe2f5f9a85e38b1bc81/src/BluetoothKit.Hci.Vendor.Samsung/Events/BtStatus/BtStatusEvents.cs` |
+| 공통 header 필드 | `https://github.com/szcpsta/BluetoothKit/blob/999c164ab30f2f0fbb15cfe2f5f9a85e38b1bc81/src/BluetoothKit.Hci.Vendor.Samsung/HciSamsungDecoded.cs` |
+| unknown 처리 | `https://github.com/szcpsta/BluetoothKit/blob/999c164ab30f2f0fbb15cfe2f5f9a85e38b1bc81/src/BluetoothKit.Hci.Vendor.Samsung/HciSamsungUnknownDecoders.cs` |
+| Command 분기 | `https://github.com/szcpsta/BluetoothKit/blob/999c164ab30f2f0fbb15cfe2f5f9a85e38b1bc81/src/BluetoothKit.Hci.Vendor.Samsung/Commands/SamsungCommandDispatch.cs` |
+| Command Complete 분기 | `https://github.com/szcpsta/BluetoothKit/blob/999c164ab30f2f0fbb15cfe2f5f9a85e38b1bc81/src/BluetoothKit.Hci.Vendor.Samsung/ReturnParameters/SamsungReturnParameterDispatch.cs` |
+| 원본 회귀 테스트 | `https://github.com/szcpsta/BluetoothKit/blob/999c164ab30f2f0fbb15cfe2f5f9a85e38b1bc81/tests/BluetoothKit.Hci.Vendor.Samsung.Tests/SamsungVendorDecoderTests.cs` |
+| 당시 SG | `https://github.com/szcpsta/BluetoothKit/blob/999c164ab30f2f0fbb15cfe2f5f9a85e38b1bc81/src/BluetoothKit.Generators/HciDecoderGenerator.cs` |
+| 당시 reader | `https://github.com/szcpsta/BluetoothKit/blob/999c164ab30f2f0fbb15cfe2f5f9a85e38b1bc81/src/BluetoothKit.Core/LogTypes/BtSnoop/Common/HciSpanReader.cs` |
+| 당시 UTF-8 formatter | `https://github.com/szcpsta/BluetoothKit/blob/999c164ab30f2f0fbb15cfe2f5f9a85e38b1bc81/src/BluetoothKit.Core/LogTypes/BtSnoop/Common/HciValueFormatter.cs` |
+| Lua 필드·Preference API | `https://www.wireshark.org/docs/wsdg_html_chunked/lua_module_Proto.html` |
+| Tree/encoding API | `https://www.wireshark.org/docs/wsdg_html_chunked/lua_module_Tree.html` |
+| TShark CLI | `https://www.wireshark.org/docs/man-pages/tshark.html` |

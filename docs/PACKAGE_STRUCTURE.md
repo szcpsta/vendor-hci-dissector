@@ -2,7 +2,8 @@
 
 기존 단일 예제를 **공통 처리와 메시지 본문 파서로 실제 분리**하고 이름을 Samsung 기준으로 정리했다.
 Lua 모듈은 `samsung_*`, 프로토콜·필터 접두사는 `bthci_vendor.samsung`을 사용한다.
-패킷 layout과 해석 동작은 학습 예제 그대로이며, Samsung의 실제 wire 명세를 구현한 것은 아니다.
+BluetoothKit `999c164`의 실제 BT Status / FW Build ID를 이관했고, 가상 학습 layout은 옵션으로 분리했다.
+[이관 근거·필드·전체 URL](SAMSUNG_MIGRATION.md)에 계약과 검증 범위를 정리했다.
 
 ## 현재 실행되는 구조
 
@@ -13,7 +14,9 @@ vendor_hci/                          # Wireshark에 복사하거나 연결하는
 ├── samsung_fields.lua                # 공통·메시지별 ProtoField와 ProtoExpert 정의
 ├── samsung_reader.lua                # offset, 경계 검사, 값 읽기, 주소·subtree helper
 ├── samsung_commands.lua              # command opcode → 본문 파서
-├── samsung_events.lua                # vendor subevent/message ID → 본문 파서
+├── samsung_events.lua                # vendor subevent → 기능별 파서
+├── samsung_events_bt_status.lua      # BT Status Tag → FW Build ID 본문
+├── samsung_tutorial.lua              # 옵션으로 켜는 기존 학습 Command/Event
 └── samsung_command_complete.lua      # 완료된 opcode → return parameters 파서
 ```
 
@@ -51,30 +54,30 @@ return require("samsung_dissector")
 
 ## 먼저 읽을 파일
 
-1. [samsung_commands.lua](../vendor_hci/samsung_commands.lua): 가장 짧은 본문 파서와 opcode 매핑.
-2. [samsung_fields.lua](../vendor_hci/samsung_fields.lua): 위 파서의 `f.sample`이 어떤 필터·타입인지 확인.
-3. [samsung_events.lua](../vendor_hci/samsung_events.lua): `decode_counted_bytes`부터 읽고 조건부 본문·배열·TLV로 확장.
-4. [samsung_dissector.lua](../vendor_hci/samsung_dissector.lua): 어떤 HCI 패킷이 위 함수를 호출하는지 확인.
-5. [samsung_reader.lua](../vendor_hci/samsung_reader.lua): 길이 검사, 오류 분류와 주소 변환의 공통 구현.
+1. [samsung_events_bt_status.lua](../vendor_hci/samsung_events_bt_status.lua): 실제 Tag 분기와 짧은 FW Build ID 파서.
+2. [samsung_fields.lua](../vendor_hci/samsung_fields.lua): `f.bt_status_tag`, `f.fw_build_id_length`, `f.fw_build_id`, `f.fw_build_id_bytes`의 필터·타입.
+3. [samsung_events.lua](../vendor_hci/samsung_events.lua): Subevent `0x63`과 기능별 모듈 연결.
+4. [samsung_dissector.lua](../vendor_hci/samsung_dissector.lua): HCI 헤더·공통 경계 검사·본문 호출.
+5. [samsung_reader.lua](../vendor_hci/samsung_reader.lua): 길이 검사와 오류 분류.
+6. [samsung_tutorial.lua](../vendor_hci/samsung_tutorial.lua): `decode_counted_bytes`부터 조건·배열·TLV로 확장.
 
-`samsung_commands.lua`의 실제 코드는 다음처럼 읽힌다.
+실제 FW Build ID 본문은 다음이 전부다.
 
 ```lua
-local f = require("samsung_fields").fields
-
-local function decode_sample(c)
-    c:u(f.sample, 1, "Sample Value")
+local function decode_fw_build_id(c)
+    local length = c:u(f.fw_build_id_length, 1, "FW Build ID Length")
+    local value = c:take(length, "FW Build ID")
+    local item = c.tree:add_packet_field(f.fw_build_id, value, ENC_UTF_8)
+    if length > 0 then item:add(f.fw_build_id_bytes, value) end
 end
-
-return {
-    [0xFC01] = decode_sample
-}
 ```
 
-`c`는 HCI 헤더를 지나 **본문 시작 위치**를 가리키는 reader다.
-이 파서는 1바이트를 읽고 `bthci_vendor.samsung.sample` 필드로 표시한다.
-Event `0xB0`와 Message `0xA0:0x0001`의 파서도 `samsung_fields.lua`의 같은 `f.sample`을 사용한다.
-Command/Event 파일은 나누면서도 공통 필드 정의는 공유하는 실제 예다.
+이때 `c`는 HCI 헤더, vendor subevent와 BT Status Tag를 지난 위치를 가리킨다.
+이 파서는 Length와 그 길이만큼의 문자열을 읽는다. Tag는 같은 모듈의 상위 함수가 읽고,
+메시지가 정확히 끝났는지는 공통 adapter가 확인한다.
+
+기존 Sample Command/Event의 `f.sample` 공유 예제는 `samsung_tutorial.lua`에 있다.
+학습 옵션은 기본으로 꺼져 있으며 실제 Command 파서가 정의되지 않은 `0xFC01`을 임의로 해석하지 않는다.
 
 ## 파일별로 맡는 일
 
@@ -85,7 +88,9 @@ Command/Event 파일은 나누면서도 공통 필드 정의는 공유하는 실
 | `samsung_fields.lua` | 필터 이름·타입·enum·단위 등 출력 정의 | 기존 필드를 재사용하고, 새 의미의 필드만 추가 |
 | `samsung_reader.lua` | offset과 본문 경계, LE 숫자·bytes 읽기, 주소·RSSI·배열 subtree 표시, 입력 오류 식별 | 새 공통 기능이 필요할 때 변경 |
 | `samsung_commands.lua` | opcode별 vendor Command 본문 | 해당 함수와 반환 테이블 항목 추가 |
-| `samsung_events.lua` | vendor Event 본문과 내부 selector 분기 | 해당 함수와 ID별 테이블 항목 추가 |
+| `samsung_events.lua` | vendor subevent 분기 | subevent와 기능별 파서 연결 |
+| `samsung_events_bt_status.lua` | BT Status Tag 분기와 본문 | 해당 Tag 함수와 매핑 추가 |
+| `samsung_tutorial.lua` | 가상 학습 layout, 기본 비활성 | 실제 디코더는 이 파일에 추가하지 않음 |
 | `samsung_command_complete.lua` | opcode별 Command Complete 반환 본문 | 명세를 확보한 함수와 테이블 항목 추가 |
 
 `samsung_fields.lua`는 `fields`와 `experts` 테이블을 반환한다.
@@ -94,7 +99,8 @@ Command/Event 파일은 나누면서도 공통 필드 정의는 공유하는 실
 자기 함수 안에서 `ProtoField`를 매번 생성하지 않는다.
 
 [samsung_command_complete.lua](../vendor_hci/samsung_command_complete.lua)는 현재 빈 테이블을 반환한다.
-기존 SampleVendorContract에 반환 본문 명세가 없으므로 임의의 decoder를 만들지 않았다.
+이관 기준인 `999c164`에서도 알려진 반환 본문이 없으므로 빈 테이블이다.
+`samsung_commands.lua`도 같은 이유로 빈 테이블을 반환한다.
 해당 opcode의 파서가 없으면 `samsung_dissector.lua`가 raw bytes와 unknown 진단을 남긴다.
 새 handler는 Num HCI Command Packets와 완료된 opcode가 소비된 다음,
 return parameters의 첫 바이트부터 읽는다. Command Status의 표준 본문은 `samsung_dissector.lua`에서 다룬다.
@@ -117,43 +123,27 @@ return parameters의 첫 바이트부터 읽는다. Command Status의 표준 본
 
 ## 패킷 하나를 코드로 따라가기
 
-`tests/make_examples.py`의 11번 frame은 다음 학습용 vendor Event다.
+FW Build ID `FW-1`을 담은 합성 Samsung Event다.
 
 ```text
-04 | ff 07 | e0 03 | 03 aa bb cc d6
-H4   HCI     route   본문: 길이 3, 데이터 aa bb cc, RSSI -42
+04 | ff 08 | 63 | 00 00 | 04 | 46 57 2d 31
+H4   HCI    sub  tag LE   N    "FW-1"
 ```
-
-실제 호출 순서는 다음과 같다.
 
 1. native HCI Event dissector가 H4 타입 `04`를 제외한 HCI 바이트를 vendor hook으로 전달한다.
-2. `samsung_dissector.lua`가 Event Code `0xFF`와 Parameter Length `7`을 읽고 본문 끝 경계를 정한다.
-3. vendor subevent `0xE0`를 읽고 `events[0xE0]`, 즉 `decode_tutorial(c)`를 호출한다.
-4. `samsung_events.lua`에서 Tutorial Kind `3`을 읽고 `tutorial_decoders[3]`, 즉 `decode_counted_bytes(c)`를 호출한다.
-5. 본문 파서는 길이·데이터·RSSI를 읽는다. offset 증가와 범위 검사는 reader가 수행한다.
-6. `samsung_dissector.lua`의 `c:finish()`가 선언된 본문을 정확히 소비했는지 확인한다.
+2. `samsung_dissector.lua`가 Event Code `0xFF`, Parameter Length `8`을 읽고 본문 끝을 정한다.
+3. 공통 `subevent_code`로 `0x63`을 읽고 `samsung_events.lua`의 `events[0x63]`을 호출한다.
+4. 연결된 `samsung_events_bt_status.lua`가 2바이트 Tag를 little-endian으로 읽는다.
+5. `tags[0x0000]`이 `decode_fw_build_id(c)`를 선택한다. 이 함수는 Length `4`와 문자열 `FW-1`을 표시한다.
+6. 공통 `c:finish()`가 여분 bytes가 없는지 확인한다. 입력 오류는 그때까지 읽은 필드와 함께 Expert Info에 남는다.
 
-`samsung_events.lua`의 해당 본문 파서는 다음과 같다.
+Tag가 `0x1234`라면 5번에서 unknown 진단과 남은 raw bytes를 표시한다.
+알 수 없는 Tag의 본문에 Length 규칙을 적용하지 않는다.
 
-```lua
-local function decode_counted_bytes(c)
-    local n = c:u(f.length, 1, "Data Length")
-    c:bytes(f.data, n, "Data")
-    rssi(c)
-end
-```
-
-여기서 `f`는 `require("samsung_fields").fields`, `rssi`는 `require("samsung_reader").rssi`다.
-추가되는 필드는 `bthci_vendor.samsung.length = 3`, `bthci_vendor.samsung.data = aabbcc`, `bthci_vendor.samsung.rssi = -42`다.
-길이가 잘못되어 다음 필드를 읽을 수 없으면 reader가 입력 오류를 만들고,
-`samsung_dissector.lua`가 그 위치에 Expert Info를 추가한다.
-예상하지 못한 프로그래밍 오류는 Lua Error로 남기며 malformed로 숨기지 않는다.
-
-GUI에서 `bthci_vendor.samsung.kind == 3`으로 검색하거나 기존 TShark 실행 인수에 다음 출력 옵션을 붙여 확인한다.
-
-```text
--Y "bthci_vendor.samsung.kind == 3" -T fields -e frame.number -e bthci_vendor.samsung.length -e bthci_vendor.samsung.data -e bthci_vendor.samsung.rssi
-```
+가상 배열·TLV 예제는 `samsung_tutorial.lua`의 별도 테이블로 연결한다.
+예를 들어 학습 frame 11은 `04 ff 07 e0 03 03 aa bb cc d6`이며,
+학습 옵션을 켜면 `tutorial.events[0xE0] → kind 3 → decode_counted_bytes(c)` 순서로 호출된다.
+길이 `3`, bytes `aabbcc`, RSSI `-42`가 나오며 기본 설정에서는 unknown이다.
 
 ## reader와 본문 파서의 경계
 
@@ -177,10 +167,11 @@ reader의 일이고, "Scan Window가 Scan Interval보다 크면 안 된다"는 �
 
 1. `samsung_fields.lua`에서 기존 정의의 의미·타입·단위를 확인하고, 필요한 새 정의만 추가한다.
 2. 해당 Command/Event/Command Complete 파일에 본문 함수와 ID 매핑을 추가한다.
-3. 패키지 밖의 `tests/make_examples.py`에 패킷·기대값을 추가하고 TShark로 검증한다.
+3. 패키지 밖의 `tests/check_samsung.py`에 원본 계약의 패킷·기대값을 추가하고 TShark로 검증한다.
+   가상 layout은 별도 `tests/make_examples.py`로 검사한다.
 
-`samsung_events.lua`의 반환 테이블은 vendor subevent를 고르고, 그 안의 `tutorial_decoders`는
-가상 `0xE0` envelope의 kind를 고른다. 실제 vendor에 내부 message ID나 version이 있다면
+`samsung_events.lua`의 반환 테이블은 vendor subevent를 고르고, `samsung_events_bt_status.lua`의
+`tags`는 BT Status Tag를 고른다. 다른 기능에도 내부 message ID나 version이 있다면
 그 값을 읽는 계층에서 다음 파서를 선택한다. 어느 함수가 selector를 소비하는지 명확히 한다.
 
 ID 매핑은 해당 파서 파일의 테이블에 둔다. 별도의 `routes.lua`와 파서 목록을 중복 관리하지 않는다.
@@ -190,7 +181,7 @@ ID 매핑은 해당 파서 파일의 테이블에 둔다. 별도의 `routes.lua`
 
 ## 메시지가 많아질 때만 더 나누기
 
-`samsung_events.lua`가 다시 읽기 어려울 정도로 커지면 기능별 모듈로 나눈다.
+현재 BT Status는 기능별 모듈로 분리했다. 다른 기능도 함께 읽고 수정할 메시지가 모이면 모듈로 나눈다.
 각 파일이 ID → 파서 테이블을 반환하고, 상위 모듈에서 명시적으로 합친다.
 합칠 때는 같은 ID가 두 번 정의되면 오류로 처리한다.
 
@@ -230,7 +221,7 @@ vendor_hci/
 
 모듈 이름, Proto·필터 이름, 테스트의 기대 필드와 문서의 실행 명령을 함께 정리했다.
 이전 필터 이름은 alias로 중복 등록하지 않는다. 저장한 필터나 `-e` 인수도 위 표대로 갱신한다.
-실제 vendor decoder를 확보하면 payload 명세와 패킷으로 이관을 검증한다.
+현재 실제로 이관한 메시지와 학습 옵션의 차이는 [Samsung 이관 문서](SAMSUNG_MIGRATION.md)에 있다.
 [Samsung 명명 규칙](WIRESHARK_LUA_DISSECTOR_GUIDE.md#59-samsung-프로토콜과-필드-이름)을 참고한다.
 
 ## 설치와 검증
@@ -241,7 +232,10 @@ Windows의 복사·junction, macOS/Linux의 복사·심볼릭 링크, `-X lua_sc
 기존 복사본을 갱신할 때는 폐기된 Lua 파일이 남지 않도록 설치 폴더 전체를 교체한다.
 새로운 빌드 과정은 필요하지 않다.
 
-모듈 분리 후 Wireshark/TShark 4.4.8에서 다음을 확인했다.
+현재 `check_samsung.py`는 23개 Samsung case와 367개 잘림 위치, 필터·byte range·학습 옵션 격리·재분석·자동 로드를 검사한다.
+`make_examples.py`는 학습 옵션을 켜고 기존 28개 case와 208개 잘림 위치를 검사한다.
+
+참고로 최초 모듈 분리·이름 변경 시 Wireshark/TShark 4.4.8에서 다음도 확인했다.
 
 - 기존 28개 예제의 필드·진단 기대값과 일반 분석/두 번 분석 결과 일치.
 - 208개 잘림 위치에서 Lua Error가 발생하지 않는 것.

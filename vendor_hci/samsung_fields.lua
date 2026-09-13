@@ -1,7 +1,14 @@
 -- Shared filter definitions. Command/Event parsers reuse these same objects.
 -- Keep bthci_vendor.samsung.* abbreviations stable: display filters and exports depend on them.
 local f = {
-    subevent_code = ProtoField.uint8("bthci_vendor.samsung.subevent_code", "Vendor Subevent", base.HEX),
+    subevent_code = ProtoField.uint8("bthci_vendor.samsung.subevent_code", "Vendor Subevent", base.HEX,
+        {[0x63] = "BT Status"}),
+    bt_status_tag = ProtoField.uint16("bthci_vendor.samsung.bt_status.tag", "BT Status Tag", base.HEX,
+        {[0x0000] = "FW Build ID"}),
+    fw_build_id_length = ProtoField.uint8("bthci_vendor.samsung.bt_status.fw_build_id_length", "FW Build ID Length", base.DEC),
+    fw_build_id = ProtoField.string("bthci_vendor.samsung.bt_status.fw_build_id", "FW Build ID"),
+    fw_build_id_bytes = ProtoField.bytes("bthci_vendor.samsung.bt_status.fw_build_id_bytes", "FW Build ID Bytes"),
+    -- The remaining layout-specific fields belong to the opt-in teaching examples.
     message_id = ProtoField.uint16("bthci_vendor.samsung.message_id", "Message ID", base.HEX),
     sample = ProtoField.uint8("bthci_vendor.samsung.sample", "Sample Value", base.DEC),
     kind = ProtoField.uint8("bthci_vendor.samsung.kind", "Tutorial Kind", base.HEX, {
